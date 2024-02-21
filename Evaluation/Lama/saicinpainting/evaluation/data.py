@@ -7,6 +7,7 @@ import numpy as np
 
 from torch.utils.data import Dataset
 import torch.nn.functional as F
+from scipy.ndimage import maximum_filter
 
 
 def load_image(fname, mode='RGB', return_orig=False):
@@ -56,12 +57,15 @@ def scale_image(img, factor, interpolation=cv2.INTER_AREA):
 
 
 class InpaintingDataset(Dataset):
-    def __init__(self, datadir, img_suffix='.jpg', pad_out_to_modulo=None, scale_factor=None):
+    def __init__(self, datadir, img_suffix='.jpg', pad_out_to_modulo=None, scale_factor=None, dilate_mask = True):
         self.datadir = datadir
         self.mask_filenames = sorted(list(glob.glob(os.path.join(self.datadir, '**', '*mask*.png'), recursive=True)))
+        # print(self.mask_filenames)
         self.img_filenames = [fname.rsplit('_mask', 1)[0] + img_suffix for fname in self.mask_filenames]
+        # print(self.img_filenames)
         self.pad_out_to_modulo = pad_out_to_modulo
         self.scale_factor = scale_factor
+        self.dilate_mask = dilate_mask
 
     def __len__(self):
         return len(self.mask_filenames)
@@ -69,6 +73,10 @@ class InpaintingDataset(Dataset):
     def __getitem__(self, i):
         image = load_image(self.img_filenames[i], mode='RGB')
         mask = load_image(self.mask_filenames[i], mode='L')
+        if self.dilate_mask:
+            print("[INFO]: Dilating mask")
+            mask = maximum_filter(mask, 5)
+
         result = dict(image=image, mask=mask[None, ...])
 
         if self.scale_factor is not None:
@@ -81,6 +89,54 @@ class InpaintingDataset(Dataset):
             result['mask'] = pad_img_to_modulo(result['mask'], self.pad_out_to_modulo)
 
         return result
+
+def complete_path(directory):
+    return os.path.join(directory, "")
+
+class GeodiffInpaintingDataset(Dataset):
+    def __init__(self, datadir, img_suffix='.jpg', pad_out_to_modulo=None, scale_factor=None, dilate_mask = True):
+        self.datadir = datadir
+        self.folder_list = glob.glob(complete_path(self.datadir) + "**/")
+        self.folder_list.sort()
+        self.mask_filenames = []
+        self.img_filenames = []
+
+        for f in self.folder_list:
+            self.mask_filenames.append(f + "resized_input_mask_png.png")
+            self.img_filenames.append(f + "resized_input_image_png.png")
+
+        # self.mask_filenames = sorted(list(glob.glob(os.path.join(self.datadir, '**', '*mask*.png'), recursive=True)))
+        # # print(self.mask_filenames)
+        # self.img_filenames = [fname.rsplit('_mask', 1)[0] + img_suffix for fname in self.mask_filenames]
+        # print(self.img_filenames)
+        self.pad_out_to_modulo = pad_out_to_modulo
+        self.scale_factor = scale_factor
+        self.dilate_mask = dilate_mask
+
+    def __len__(self):
+        return len(self.mask_filenames)
+
+    def __getitem__(self, i):
+        image = load_image(self.img_filenames[i], mode='RGB')
+        mask = load_image(self.mask_filenames[i], mode='L')
+        if self.dilate_mask:
+            print("[INFO]: Dilating mask")
+            mask = maximum_filter(mask, 5)
+
+        result = dict(image=image, mask=mask[None, ...])
+
+        if self.scale_factor is not None:
+            result['image'] = scale_image(result['image'], self.scale_factor)
+            result['mask'] = scale_image(result['mask'], self.scale_factor, interpolation=cv2.INTER_NEAREST)
+
+        if self.pad_out_to_modulo is not None and self.pad_out_to_modulo > 1:
+            result['unpad_to_size'] = result['image'].shape[1:]
+            result['image'] = pad_img_to_modulo(result['image'], self.pad_out_to_modulo)
+            result['mask'] = pad_img_to_modulo(result['mask'], self.pad_out_to_modulo)
+
+        return result
+
+
 
 class OurInpaintingDataset(Dataset):
     def __init__(self, datadir, img_suffix='.jpg', pad_out_to_modulo=None, scale_factor=None):
