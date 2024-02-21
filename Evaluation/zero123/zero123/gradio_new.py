@@ -107,6 +107,7 @@ def sample_model(input_im, model, sampler, precision, h, w, ddim_steps, n_sample
             print(samples_ddim.shape)
             # samples_ddim = torch.nn.functional.interpolate(samples_ddim, 64, mode='nearest', antialias=False)
             x_samples_ddim = model.decode_first_stage(samples_ddim)
+            print("Decoding first stage")
             return torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0).cpu()
 
 
@@ -317,6 +318,8 @@ def main_run(models, device, cam_vis, return_what,
     '''
     :param raw_im (PIL Image).
     '''
+
+    print("MAIN RUNNNNNNNNNN!!!!!!!!!!!!!")
     
     raw_im.thumbnail([1536, 1536], Image.Resampling.LANCZOS)
     safety_checker_input = models['clip_fe'](raw_im, return_tensors='pt').to(device)
@@ -366,6 +369,8 @@ def main_run(models, device, cam_vis, return_what,
     cam_vis.encode_image(show_in_im1)
     new_fig = cam_vis.update_figure()
 
+    print("Running generation")
+
     if 'vis' in return_what:
         description = ('The viewpoints are visualized on the top right. '
                        'Click Run Generation to update the results on the bottom right.')
@@ -383,6 +388,8 @@ def main_run(models, device, cam_vis, return_what,
         sampler = DDIMSampler(models['turncam'])
         # used_x = -x  # NOTE: Polar makes more sense in Basile's opinion this way!
         used_x = x  # NOTE: Set this way for consistency.
+        # print("Running generation sample")
+
         x_samples_ddim = sample_model(input_im, models['turncam'], sampler, precision, h, w,
                                       ddim_steps, n_samples, scale, ddim_eta, used_x, y, z)
 
@@ -425,9 +432,7 @@ def calc_cam_cone_pts_3d(polar_deg, azimuth_deg, radius_m, fov_deg):
                          [np.sin(azimuth_rad) * np.cos(polar_rad),
                           np.cos(azimuth_rad),
                           -np.sin(azimuth_rad) * np.sin(polar_rad)],
-                         [np.sin(polar_rad),
-                          0.0,
-                          np.cos(polar_rad)]])
+                         [np.sin(polar_rad), 0.0, np.cos(polar_rad)]])
     # print('camera_R:', lo(camera_R).v)
 
     # Multiply by corners in camera space to obtain go to space:

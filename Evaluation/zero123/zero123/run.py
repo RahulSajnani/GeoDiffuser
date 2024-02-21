@@ -186,10 +186,28 @@ def get_input(input_im, mask_im):
     return image
 
 
+def cartesian_to_spherical(xyz):
+    ptsnew = np.hstack((xyz, np.zeros(xyz.shape)))
+    xy = xyz[:,0]**2 + xyz[:,1]**2
+    z = np.sqrt(xy + xyz[:,2]**2)
+    theta = np.arctan2(np.sqrt(xy), xyz[:,2]) # for elevation angle defined from Z-axis down
+    #ptsnew[:,4] = np.arctan2(xyz[:,2], np.sqrt(xy)) # for elevation angle defined from XY-plane up
+    azimuth = np.arctan2(xyz[:,1], xyz[:,0])
+    return np.array([theta, azimuth, z])
+
+
+
+def transformation_matrix_to_spherical(transform_mat):
+
+    print(transform_mat)
+    R, T = transform_mat[:3, :3], transform_mat[:3, -1]
+    T_cond = -R.T @ T
+
+    return cartesian_to_spherical(T_cond[None, :])
 
 if __name__ == "__main__":
 
-    exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/2"
+    exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/64"
 
     ckpt='105000.ckpt'
     config='configs/sd-objaverse-finetune-c_concat-256.yaml'
@@ -204,10 +222,15 @@ if __name__ == "__main__":
     im = exp_dict["input_image_png"]
     im_mask = exp_dict["input_mask_png"]
     im_out = get_input(im, im_mask)
+    transform_mat = exp_dict["transform_npy"]
+    x, y, z = transformation_matrix_to_spherical(transform_mat)
+
+    # print(x, y, z)
+    # exit()
     model = initialize_models(config, ckpt)
 
     plt.imsave("./test_1.png", im_out)
-    im_out_gen = run_zero123(model, im_out, x=0, y=30, z=0)
+    im_out_gen = run_zero123(model, im_out, x=x, y=-y, z=z)
 
     im_out_gen = im_out_gen[0]
     # print(im_out_gen.shape, im_out_gen.min(), im_out_gen.max())
