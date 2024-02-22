@@ -387,10 +387,10 @@ def get_input_for_detr(input_im, mask_im):
     im_out = input_im[h_min:h_max, w_min:w_max]
     im_mask_out = mask_im[h_min:h_max, w_min:w_max]
 
-    im_out = Image.fromarray(im_out)
-    im_out.thumbnail([200, 200], Image.Resampling.LANCZOS)
-    im_out = add_margin(im_out, (255, 255, 255), size=256)
-    im_out = np.array(im_out)
+    # im_out = Image.fromarray(im_out)
+    # im_out.thumbnail([200, 200], Image.Resampling.LANCZOS)
+    # im_out = add_margin(im_out, (255, 255, 255), size=256)
+    # im_out = np.array(im_out)
 
     # input_im * mask_im[..., None]
 
@@ -409,7 +409,7 @@ def get_object_category(im, mask, d_model, image_processor, threshold = 0.9):
     
     results = image_processor.post_process_object_detection(outputs, threshold=threshold, target_sizes=target_sizes)[0]   
 
-    if len(results):
+    if len(results["labels"]) > 0:
         return d_model.config.id2label[results["labels"][0].item()]
     else:
         # Failed identification
