@@ -12,6 +12,7 @@ setup_logger()
 import matplotlib.pyplot as plt
 import cv2, os
 import numpy as np
+import glob
 
 # import some common detectron2 utilities
 from detectron2 import model_zoo
@@ -28,6 +29,10 @@ from run_generation import get_argument_parser, preprocess_image, instantiate_fr
 from PIL import Image
 
 from transformers import AutoImageProcessor, DetrModel, DetrForObjectDetection
+
+TRANSLATE_MODEL = None
+ROTATE_MODEL = None
+DETR_MODEL = None
 
 def create_folder(directory):
     os.makedirs(directory, exist_ok = True)
@@ -118,17 +123,36 @@ def get_detectron_model():
 
     return predictor
 
+
+
+
 def edit(image, task, object_prompt, checkpoint_path, x = -1, y = -1, rotation_angle = 0, device="cuda", ddim_steps=50, num_samples=1, cfg_scale = 3.0):
 
-    print("LOADING MODEL!")
-    config = OmegaConf.load(f"configs/sd-objaverse-{task}.yaml")
-    OmegaConf.update(config,"model.params.cond_stage_config.params.device",device)
-    model = instantiate_from_config(config.model)
-    # model.cpu()
-    model.to(device)
-    load_checkpoint(model, checkpoint_path)
-    model.eval()
-    print("FINISHED LOADING!")
+    global TRANSLATE_MODEL, ROTATE_MODEL
+
+    model = None
+    if task == "translate":
+        model = TRANSLATE_MODEL
+    elif task == "rotate":
+        model = ROTATE_MODEL
+
+    if model is None:
+        print("LOADING MODEL!")
+        config = OmegaConf.load(f"configs/sd-objaverse-{task}.yaml")
+        OmegaConf.update(config,"model.params.cond_stage_config.params.device",device)
+        model = instantiate_from_config(config.model)
+        # model.cpu()
+        model.to(device)
+        load_checkpoint(model, checkpoint_path)
+        model.eval()
+        print("FINISHED LOADING!")
+        if task == "translate":
+            TRANSLATE_MODEL = model
+        elif task == "rotate":
+            ROTATE_MODEL = model
+    else:
+        print("using pre-loaded model")
+
 
     image = Image.fromarray(image)
     input_im = preprocess_image(image).to(device)
@@ -230,8 +254,9 @@ def get_task_from_transform(transform_mat, mask):
     rt = transform_mat[:3, -1]
     # print(r)
     dist_r = np.sum(np.abs(r - np.eye(3))) 
-    dist_t = (np.sum(np.abs(rt)) > 1e-8)
+    dist_t = np.sum(np.abs(rt))
 
+    # print(dist_r, dist_t)
     if np.linalg.det(r) < 0:
         # When reflection is present
         return "nothing", None
@@ -319,9 +344,14 @@ def resize_image(image, aspect_ratio):
 
 def get_detr_model():
     
-    image_processor = AutoImageProcessor.from_pretrained("facebook/detr-resnet-50")
-    # model = DetrModel.from_pretrained("facebook/detr-resnet-50")
-    model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
+    global DETR_MODEL
+    if DETR_MODEL is None:
+        image_processor = AutoImageProcessor.from_pretrained("facebook/detr-resnet-50")
+        # model = DetrModel.from_pretrained("facebook/detr-resnet-50")
+        model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
+        DETR_MODEL = model, image_processor
+    else:
+        model, image_processor = DETR_MODEL
     return model, image_processor
 
 def normalize_image(im):
@@ -367,61 +397,165 @@ def get_object_category(im, mask, d_model, image_processor, threshold = 0.9):
 
 
     return d_model.config.id2label[results["labels"][0].item()]
+
+def write_string_to_file(f_path, text):
+
+    f = open(f_path, "w")
+    f.write(text)
+    f.close()
+
+
+def list_exp_details(exp_dict):
+
+    for k in exp_dict.keys():
+        if exp_dict[k] is None:
+            print(k, " None")
+        elif k != "path_name":
+            print(k, " ", exp_dict[k].shape, " ", exp_dict[k].min(), " ", exp_dict[k].max())
+        elif k == "path_name":
+            print(k, " ", exp_dict[k])
+
+def evaluate_geodiff(exp_root_folder, weights_folder):
+
+    folder_list = glob.glob(complete_path(exp_root_folder) + "**/")
+    folder_list.sort()
+
+    d_model, image_processor = get_detr_model()
+
+    num_k = 0
+
+    for exp_folder in folder_list:
+        
+        num_k +=1
+        print("Performing edit on: ", exp_folder)
+        
+        
+        # continue
+        exp_folder = complete_path(exp_folder)
+        exp_dict = read_exp(exp_folder)
+        # list_exp_details(exp_dict)
+
+
+        im = exp_dict["input_image_png"]
+        im_mask = exp_dict["input_mask_png"]
+        transformed_mask = exp_dict["transformed_mask_square_png"]
+        transform_mat = exp_dict["transform_npy"]
+        im_size = exp_dict["image_shape_npy"]
+
+
+        # get task
+        task, params = get_task_from_transform(transform_mat, transformed_mask)
+        # continue
+        # get category
+        category = get_object_category(im, im_mask, d_model, image_processor)
+
+
+        print(task, params)
+        print("detected category: ", category)
+        if task == "both":
+            a, x, y = params
+            task_1 = "rotate"
+            ckpt = weights_folder + task_1 + ".ckpt"
+            input_im, output_ims = edit(im, task_1, category, ckpt, rotation_angle=a)
+            im_2 = np.array(output_ims[0])
+            # plt.imsave("./geodiff_gen_1.png", resize_image(np.array(output_ims[0]), im_size))
+            im_2 = im
+            task_2 = "translate"
+            ckpt = weights_folder + task_2 + ".ckpt"
+            input_im, output_ims = edit(im_2, task_2, category, ckpt, x = x, y=y)
+            gen_output = output_ims[0]
+
+            # plt.imsave("./geodiff_gen_2.png", resize_image(np.array(output_ims[0]), im_size))
+
+        elif task != "nothing":
+            ckpt = weights_folder + task + ".ckpt"
+            if task == "rotate":
+                input_im, output_ims = edit(im, task, category, ckpt, a = params)
+            else:
+                input_im, output_ims = edit(im, task, category, ckpt, x = params[0], y = params[1])
+
+            gen_output = output_ims[0]
+            # plt.imsave("./geodiff_gen.png", resize_image(np.array(output_ims[0]), im_size))
+        else:
+            # Do nothing save input as generated
+            gen_output = im
+            # plt.imsave("./geodiff_gen.png", resize_image(np.array(input_im), im_size))
+
+
+        out_path_dir = exp_folder + "object_edit/"
+        os.makedirs(out_path_dir, exist_ok = True)
+        
+
+        write_string_to_file(out_path_dir + "category.txt", category)
+        write_string_to_file(out_path_dir + "task.txt", task)
+        if params is not None:
+            np.save(out_path_dir + "params.npy", np.array(params))
+
+        plt.imsave(out_path_dir + "result_object_edit..png", resize_image(np.array(gen_output), im_size))
+
+        # if num_k == 2:
+        #     exit()
+        # exit()
+
+
+
     
 
 if __name__ == "__main__":
 
-
-    exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/1"
+    exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/"
     weights_folder = "../../../weights/object-edit/"
-    exp_dict = read_exp(exp_folder)
-    im = exp_dict["input_image_png"]
-    im_mask = exp_dict["input_mask_png"]
-    transform_mat = exp_dict["transform_npy"]
-    depth = exp_dict["depth_npy"]
-    im_size = exp_dict["image_shape_npy"]
-    transformed_mask = exp_dict["transformed_mask_square_png"]
+    evaluate_geodiff(exp_root_folder, weights_folder)
+    exit()
+    # exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/1"
+    # exp_dict = read_exp(exp_folder)
+    # im = exp_dict["input_image_png"]
+    # im_mask = exp_dict["input_mask_png"]
+    # transform_mat = exp_dict["transform_npy"]
+    # depth = exp_dict["depth_npy"]
+    # im_size = exp_dict["image_shape_npy"]
+    # transformed_mask = exp_dict["transformed_mask_square_png"]
 
-    print(transform_mat)
+    # print(transform_mat)
     
-    task, params = get_task_from_transform(transform_mat, transformed_mask)
+    # task, params = get_task_from_transform(transform_mat, transformed_mask)
 
-    print(task, params)
+    # print(task, params)
+    # # exit()
+
+    # d_model, image_processor = get_detr_model()
+
+    # category = get_object_category(im, im_mask, d_model, image_processor)
+
+    # print("detected category: ", category)
+    # if task == "both":
+    #     a, x, y = params
+    #     task_1 = "rotate"
+    #     # ckpt = weights_folder + task_1 + ".ckpt"
+    #     # input_im, output_ims = edit(im, task_1, category, ckpt, rotation_angle=a)
+    #     # im_2 = np.array(output_ims[0])
+    #     # plt.imsave("./geodiff_gen_1.png", resize_image(np.array(output_ims[0]), im_size))
+    #     im_2 = im
+    #     task_2 = "translate"
+    #     ckpt = weights_folder + task_2 + ".ckpt"
+    #     input_im, output_ims = edit(im_2, task_2, category, ckpt, x = x, y=y)
+    #     plt.imsave("./geodiff_gen_2.png", resize_image(np.array(output_ims[0]), im_size))
+
+    # elif task != "nothing":
+    #     ckpt = weights_folder + task + ".ckpt"
+    #     if task == "rotate":
+    #         input_im, output_ims = edit(im, task, category, ckpt, a = params)
+    #     else:
+    #         input_im, output_ims = edit(im, task, category, ckpt, x = params[0], y = params[1])
+
+    #     input_im, output_ims = edit(im, task, category, ckpt, x = 0.6, y=0.2)
+    #     plt.imsave("./geodiff_gen.png", resize_image(np.array(output_ims[0]), im_size))
+    # else:
+    #     # Do nothing save input as generated
+    #     plt.imsave("./geodiff_gen.png", resize_image(np.array(input_im), im_size))
+        
+    # plt.imsave("./geodiff_in.png", resize_image(np.array(im), im_size))
     # exit()
 
-    d_model, image_processor = get_detr_model()
 
-    category = get_object_category(im, im_mask, d_model, image_processor)
-
-    print("detected category: ", category)
-    if task == "both":
-        a, x, y = params
-        task_1 = "rotate"
-        # ckpt = weights_folder + task_1 + ".ckpt"
-        # input_im, output_ims = edit(im, task_1, category, ckpt, rotation_angle=a)
-        # im_2 = np.array(output_ims[0])
-        # plt.imsave("./geodiff_gen_1.png", resize_image(np.array(output_ims[0]), im_size))
-        im_2 = im
-        task_2 = "translate"
-        ckpt = weights_folder + task_2 + ".ckpt"
-        input_im, output_ims = edit(im_2, task_2, category, ckpt, x = x, y=y)
-        plt.imsave("./geodiff_gen_2.png", resize_image(np.array(output_ims[0]), im_size))
-
-    elif task != "nothing":
-        ckpt = weights_folder + task + ".ckpt"
-        if task == "rotate":
-            input_im, output_ims = edit(im, task, category, ckpt, a = params)
-        else:
-            input_im, output_ims = edit(im, task, category, ckpt, x = params[0], y = params[1])
-
-        input_im, output_ims = edit(im, task, category, ckpt, x = 0.6, y=0.2)
-        plt.imsave("./geodiff_gen.png", resize_image(np.array(output_ims[0]), im_size))
-    else:
-        # Do nothing save input as generated
-        plt.imsave("./geodiff_gen.png", resize_image(np.array(input_im), im_size))
-        
-    plt.imsave("./geodiff_in.png", resize_image(np.array(im), im_size))
-    exit()
-
-
-    pass
+    # pass
