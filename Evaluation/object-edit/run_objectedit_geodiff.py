@@ -65,8 +65,9 @@ def read_exp(d_path):
     
     transformed_image_path = save_folder + "transformed_image.png"
     result_path = save_folder + "result.png"
+    transformed_mask_path = save_folder + "ours/transformed_mask_square.png"
     
-    all_paths = [img_path, depth_path, mask_path, bg_path, depth_vis_path, transform_path, transformed_image_path, result_path, im_shape]
+    all_paths = [img_path, depth_path, mask_path, bg_path, depth_vis_path, transform_path, transformed_image_path, result_path, im_shape, transformed_mask_path]
     
     out_dict = {}
     for f_name in all_paths:
@@ -193,37 +194,53 @@ def normalize_vector(v, eps = 1e-12):
 
 def get_azimuth_angle(r):
 
-    t = normalize_vector(np.array([0, 0, 1]).astype("float32"))
+    t = normalize_vector(np.array([1, 0, 1]).astype("float32"))
 
     rotated_t = r @ t
     # Projecting to y = 0 plane
     rotated_t[1] = 0
     rotated_t = normalize_vector(rotated_t)
+
+    # print(t, rotated_t)
     
     angle = np.arccos(np.dot(rotated_t, t))
 
     return np.rad2deg(angle)
 
-def get_translation(transform_mat, depth):
-    x = 0.5
-    y = 0.5
+def get_translation(transform_mat, mask):
+    
+    mask = (((mask / 255.0) > 0.5) * 1.0)[..., 0]
+    # print(mask.shape, mask.min(), mask.max())
+    h, w = np.indices(mask.shape)
+
+
+    w_obj_location = np.mean(w[mask > 0.5])
+    h_obj_location = np.mean(h[mask > 0.5])
+
+    x = float(w_obj_location / mask.shape[1])
+    y = 1.0 - float(h_obj_location / mask.shape[0])
     return x, y
 
 
-def get_task_from_transform(transform_mat, depth, ):
+def get_task_from_transform(transform_mat, mask):
 
+
+    assert mask is not None, "No transformed mask found, run ui_utils"
     r = transform_mat[:3, :3]
     rt = transform_mat[:3, -1]
     # print(r)
     dist_r = np.sum(np.abs(r - np.eye(3))) 
     dist_t = (np.sum(np.abs(rt)) > 1e-8)
 
+    if np.linalg.det(r) < 0:
+        # When reflection is present
+        return "nothing", None
     x_out, y_out, z_out = 0, 0, 0
     # print(dist)
     if dist_r < 1e-8 and dist_t > 1e-4:
         # Only translation task
         task = "translate"
-        x, y = get_translation(transform_mat, depth)
+        x, y = get_translation(transform_mat, mask)
 
         return task, (x, y)
 
@@ -242,9 +259,12 @@ def get_task_from_transform(transform_mat, depth, ):
     else:
         # rotate and translate
         task = "both"
-        x, y = get_translation(transform_mat, depth)
+        x, y = get_translation(transform_mat, mask)
         angle = get_azimuth_angle(r)
 
+        # If angle is small ignore
+        if np.abs(angle) < 2:
+            return "translate", (x, y)
         return task, (angle, x, y)
 
 
@@ -352,7 +372,7 @@ def get_object_category(im, mask, d_model, image_processor, threshold = 0.9):
 if __name__ == "__main__":
 
 
-    exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/64"
+    exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/1"
     weights_folder = "../../../weights/object-edit/"
     exp_dict = read_exp(exp_folder)
     im = exp_dict["input_image_png"]
@@ -360,12 +380,14 @@ if __name__ == "__main__":
     transform_mat = exp_dict["transform_npy"]
     depth = exp_dict["depth_npy"]
     im_size = exp_dict["image_shape_npy"]
+    transformed_mask = exp_dict["transformed_mask_square_png"]
 
     print(transform_mat)
     
-    task, params = get_task_from_transform(transform_mat, depth)
+    task, params = get_task_from_transform(transform_mat, transformed_mask)
 
     print(task, params)
+    # exit()
 
     d_model, image_processor = get_detr_model()
 
@@ -375,13 +397,14 @@ if __name__ == "__main__":
     if task == "both":
         a, x, y = params
         task_1 = "rotate"
-        ckpt = weights_folder + task_1 + ".ckpt"
-        input_im, output_ims = edit(im, task_1, category, ckpt, rotation_angle=a)
-        im = np.array(output_ims[0])
-        plt.imsave("./geodiff_gen_1.png", resize_image(np.array(output_ims[0]), im_size))
+        # ckpt = weights_folder + task_1 + ".ckpt"
+        # input_im, output_ims = edit(im, task_1, category, ckpt, rotation_angle=a)
+        # im_2 = np.array(output_ims[0])
+        # plt.imsave("./geodiff_gen_1.png", resize_image(np.array(output_ims[0]), im_size))
+        im_2 = im
         task_2 = "translate"
         ckpt = weights_folder + task_2 + ".ckpt"
-        input_im, output_ims = edit(im, task_2, category, ckpt, x = x, y=y)
+        input_im, output_ims = edit(im_2, task_2, category, ckpt, x = x, y=y)
         plt.imsave("./geodiff_gen_2.png", resize_image(np.array(output_ims[0]), im_size))
 
     elif task != "nothing":
@@ -397,7 +420,7 @@ if __name__ == "__main__":
         # Do nothing save input as generated
         plt.imsave("./geodiff_gen.png", resize_image(np.array(input_im), im_size))
         
-    plt.imsave("./geodiff_in.png", resize_image(np.array(input_im), im_size))
+    plt.imsave("./geodiff_in.png", resize_image(np.array(im), im_size))
     exit()
 
 
