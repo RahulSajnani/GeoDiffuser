@@ -27,6 +27,7 @@ from omegaconf import OmegaConf
 from run_generation import get_argument_parser, preprocess_image, instantiate_from_config, load_checkpoint, sample_model
 from PIL import Image
 
+from transformers import AutoImageProcessor, DetrModel, DetrForObjectDetection
 
 def create_folder(directory):
     os.makedirs(directory, exist_ok = True)
@@ -296,6 +297,58 @@ def resize_image(image, aspect_ratio):
     return img
     
 
+def get_detr_model():
+    
+    image_processor = AutoImageProcessor.from_pretrained("facebook/detr-resnet-50")
+    # model = DetrModel.from_pretrained("facebook/detr-resnet-50")
+    model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
+    return model, image_processor
+
+def normalize_image(im):
+
+    if im.max() > 1:
+        return im / 255.0
+    else:
+        return im
+
+def get_input_for_detr(input_im, mask_im):
+
+    # print(input_im.shape, mask_im.shape)
+    # print(input_im.max(), mask_im.max())
+
+    if len(mask_im.shape) > 2:
+        mask_im = mask_im[..., 0]
+
+    mask_im = (normalize_image(mask_im) > 0.5) * 1.0
+    # input_im = normalize_image(input_im)
+
+    h, w = np.indices(mask_im.shape)
+
+    h_min, h_max = h[mask_im > 0.5].min(), h[mask_im > 0.5].max()
+    w_min, w_max = w[mask_im > 0.5].min(), w[mask_im > 0.5].max()
+
+
+    im_out = input_im[h_min:h_max, w_min:w_max]
+    im_mask_out = mask_im[h_min:h_max, w_min:w_max]
+    # input_im * mask_im[..., None]
+
+    return im_out, im_mask_out
+
+
+def get_object_category(im, mask, d_model, image_processor, threshold = 0.9):
+
+    im, im_mask = get_input_for_detr(im, mask)
+    image = Image.fromarray(im)
+    target_sizes = torch.tensor([image.size[::-1]])
+    inputs = image_processor(images=image, return_tensors="pt")
+    outputs = d_model(**inputs)
+
+    results = image_processor.post_process_object_detection(outputs, threshold=threshold, target_sizes=target_sizes)[0]   
+
+
+    return d_model.config.id2label[results["labels"][0].item()]
+    
+
 if __name__ == "__main__":
 
 
@@ -313,7 +366,12 @@ if __name__ == "__main__":
     task, params = get_task_from_transform(transform_mat, depth)
 
     print(task, params)
-    category = "boat"
+
+    d_model, image_processor = get_detr_model()
+
+    category = get_object_category(im, im_mask, d_model, image_processor)
+
+    print("detected category: ", category)
     if task == "both":
         a, x, y = params
         task_1 = "rotate"
