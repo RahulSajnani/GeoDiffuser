@@ -185,36 +185,169 @@ def get_input(input_im, mask_im):
 
     return image
 
+def rotateAxis(degrees, axis):
+    '''
+    Function to rotate around given axis
+
+    Input:
+        degrees - scalar - Angle in degrees
+        
+        axis - scalar - options:
+            0 - around x axis
+            1 - around y axis
+            2 - around z axis  
+    
+    Returns:
+        Homogeneous rotation matrix
+    '''
+
+    radians = np.radians(degrees)
+
+    if axis == 2: # z - axis
+
+        rotation_mat = np.array([[np.cos(radians), -np.sin(radians),           0,          0],
+                                 [np.sin(radians),  np.cos(radians),           0,          0],
+                                 [              0,                0,           1,          0],
+                                 [              0,                0,           0,          1]])
+
+    elif axis == 1: # y - axis
+
+        rotation_mat = np.array([[np.cos(radians),                0,  np.sin(radians),          0],
+                                 [              0,                1,                0,          0],
+                                 [-np.sin(radians),               0, np.cos(radians),          0],
+                                 [              0,                0,                0,          1]])
+
+    elif axis == 0: # x - axis
+
+
+        rotation_mat = np.array([[             1,                0,                0,          0],
+                                [              0,  np.cos(radians), -np.sin(radians),          0],
+                                [              0,  np.sin(radians),  np.cos(radians),          0], 
+                                [              0,                0,                0,          1]])
+    
+    return rotation_mat.astype("float32")
+
+
+
+
+
+
+transform_converter = rotateAxis(-90, 0) #@ rotateAxis(180, 2)
+
+# transform_converter = rotateAxis(90, 0) @ rotateAxis(180, 2)
+# transform_converter = rotateAxis(-90, 0) @ rotateAxis(180, 2)# @ rotateAxis(90, 0)
+# transform_converter = np.eye(4).astype("float32")
+
+
+def convert_transform_geodiff_to_zero123(transform_mat):
+
+    return np.linalg.inv(transform_converter) @ transform_mat @ (transform_converter)
+
 
 def cartesian_to_spherical(xyz):
-    ptsnew = np.hstack((xyz, np.zeros(xyz.shape)))
+    xyz = (transform_converter[:3, :3] @ xyz.T).T
+    # ptsnew = np.hstack((xyz, np.zeros(xyz.shape)))
+    # print(ptsnew.shape)
     xy = xyz[:,0]**2 + xyz[:,1]**2
     z = np.sqrt(xy + xyz[:,2]**2)
-    theta = np.arctan2(np.sqrt(xy), xyz[:,2]) # for elevation angle defined from Z-axis down
+    theta = np.rad2deg(np.arctan2(np.sqrt(xy), xyz[:,2])) # for elevation angle defined from Z-axis down
     #ptsnew[:,4] = np.arctan2(xyz[:,2], np.sqrt(xy)) # for elevation angle defined from XY-plane up
-    azimuth = np.arctan2(xyz[:,1], xyz[:,0])
+    azimuth = np.rad2deg(np.arctan2(xyz[:,1], xyz[:,0]))
     return np.array([theta, azimuth, z])
 
+def translateMatrix(x, y, z):
+
+    translation_matrix = np.eye(4)
+    translation_matrix[0,3] += x
+    translation_matrix[1,3] += y
+    translation_matrix[2,3] += z
+
+    return translation_matrix
+
+
+def transformation_matrix_to_spherical_2(transform_mat):
+
+    r = transform_mat[:3, :3]
+    rt = transform_mat[:3, -1]
+    # print(r)
+    dist = np.sum(np.abs(r - np.eye(3))) 
+    # print(dist)
+    if dist > 1e-8:
+        t = np.array([0, 0, 1]).astype("float32")
+        x, y, z = cartesian_to_spherical(t[None])
+        rt = r.T @ t
+        xr, yr, zr = cartesian_to_spherical(rt[None, :])
+        return xr - x, yr - y, zr - z
+    elif np.sum(np.abs(rt)) > 1e-8:
+        rt[-1] += 1
+        norm_t = np.linalg.norm(rt)
+        t = np.array([0, 0, 1]).astype("float32") * norm_t
+        # print(t, rt)
+        x, y, z = cartesian_to_spherical(t[None])
+        # print(rt[None].shape)
+        xr, yr, zr = cartesian_to_spherical(rt[None, :])
+        return xr - x, yr - y, zr - z
+
+    else:
+        return 0, 0, 0
 
 
 def transformation_matrix_to_spherical(transform_mat):
 
-    print(transform_mat)
-    R, T = transform_mat[:3, :3], transform_mat[:3, -1]
-    T_cond = -R.T @ T
 
+
+    # # pts = np.ones((4,))
+    # transform_mat = np.linalg.inv(transform_mat)
+    # # T_cond = (transform_mat @ pts)[:3].astype("float32")
+
+    # # print(T_cond.shape)
+
+    # # print(transform_mat)
+    # # transform_mat = convert_transform_geodiff_to_zero123(transform_mat)
+    # R, T = transform_mat[:3, :3], transform_mat[:3, -1]
+    # T_cond = -R.T @ T
+    T_cond = transform_mat[:3, -1]
+    print(T_cond)
+    # T_cond[0] *= -1
+    # T_cond[1] *= -1
+    T_cond = transform_converter[:3, :3] @ T_cond
+    print("After:", T_cond)
+
+    # transform_converter = rotateAxis(90, 2)
+    # T_cond = transform_converter[:3, :3] @ T_cond
+
+    # print("t cond: ", T_cond)
+
+    # exit()
+    # print(T_cond)
+
+    # T_cond = transform_mat[:3, -1]
     return cartesian_to_spherical(T_cond[None, :])
+
+
+
 
 if __name__ == "__main__":
 
+
+    # t = rotateAxis(90, 0) @ translateMatrix(0, 0, 1)
+    # print(transformation_matrix_to_spherical(t))
+
+    # t = rotateAxis(90, 1) @ translateMatrix(0, 0, 1)
+    # print(t)
+    # print(transformation_matrix_to_spherical(t))
+
+    # t = rotateAxis(90, 2) @ translateMatrix(0, 0, 1)
+    # # print(t)
+    # print(transformation_matrix_to_spherical(t))
+
+    # exit()
+
     exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/64"
 
-    ckpt='105000.ckpt'
-    config='configs/sd-objaverse-finetune-c_concat-256.yaml'
-    config = OmegaConf.load(config)
-
     exp_dict = read_exp(exp_folder)
-    list_exp_details(exp_dict)
+
+    # list_exp_details(exp_dict)
 
 
     
@@ -223,18 +356,35 @@ if __name__ == "__main__":
     im_mask = exp_dict["input_mask_png"]
     im_out = get_input(im, im_mask)
     transform_mat = exp_dict["transform_npy"]
-    x, y, z = transformation_matrix_to_spherical(transform_mat)
+    # print(transform_mat)
+    # print(transform_mat)
+    x, y, z = transformation_matrix_to_spherical_2(transform_mat)
+    # x_i, y_i, z_i = transformation_matrix_to_spherical(np.eye(4).astype("float32"))
 
-    # print(x, y, z)
+    # print(x - x_i, y - y_i, z - z_i)
+    # # y should be 19 for this
+    # print("current: ", x, y, z)
+    # x = 0
+    # y = 19
+    # z = 0
+    # print("expected:", x, y, z)
+    # x = x - 90
+    # y = y - 90
+    # z = z - 0
+    print("theta = ", x, "phi = ", y, z)
     # exit()
+
+    ckpt='105000.ckpt'
+    config='configs/sd-objaverse-finetune-c_concat-256.yaml'
+    config = OmegaConf.load(config)
     model = initialize_models(config, ckpt)
 
-    plt.imsave("./test_1.png", im_out)
-    im_out_gen = run_zero123(model, im_out, x=x, y=-y, z=z)
+    plt.imsave("./out_in.png", im_out)
+    im_out_gen = run_zero123(model, im_out, x=x, y=y, z=z)
 
     im_out_gen = im_out_gen[0]
     # print(im_out_gen.shape, im_out_gen.min(), im_out_gen.max())
-    plt.imsave("./out.png", np.array(im_out_gen))
+    plt.imsave("./out_gen.png", np.array(im_out_gen))
 
 
 
