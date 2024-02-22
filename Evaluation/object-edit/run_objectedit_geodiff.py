@@ -19,6 +19,7 @@ from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import MetadataCatalog
+import math
 
 
 from omegaconf import OmegaConf
@@ -121,9 +122,9 @@ def edit(image, task, object_prompt, checkpoint_path, x = -1, y = -1, rotation_a
     config = OmegaConf.load(f"configs/sd-objaverse-{task}.yaml")
     OmegaConf.update(config,"model.params.cond_stage_config.params.device",device)
     model = instantiate_from_config(config.model)
-    model.cpu()
-    load_checkpoint(model, checkpoint_path)
+    # model.cpu()
     model.to(device)
+    load_checkpoint(model, checkpoint_path)
     model.eval()
     print("FINISHED LOADING!")
 
@@ -176,31 +177,170 @@ def edit(image, task, object_prompt, checkpoint_path, x = -1, y = -1, rotation_a
 
     return input_im, output_ims
 
-def run_object_edit(input_img, ):
+
+def process_depth(depth):
+    depth = depth.max() - depth
+    depth = depth / (depth.max() + 1e-8)
+    depth[depth > 0.9] = 1000000.0
+    mask = (depth < 100.0) * 1.0
+
+    return depth, mask
 
 
-    pass
+def normalize_vector(v, eps = 1e-12):
+    return v / (np.linalg.norm(v) + eps)
 
+def get_azimuth_angle(r):
+
+    t = normalize_vector(np.array([0, 0, 1]).astype("float32"))
+
+    rotated_t = r @ t
+    # Projecting to y = 0 plane
+    rotated_t[1] = 0
+    rotated_t = normalize_vector(rotated_t)
+    
+    angle = np.arccos(np.dot(rotated_t, t))
+
+    return np.rad2deg(angle)
+
+def get_translation(transform_mat, depth):
+    x = 0.5
+    y = 0.5
+    return x, y
+
+
+def get_task_from_transform(transform_mat, depth, ):
+
+    r = transform_mat[:3, :3]
+    rt = transform_mat[:3, -1]
+    # print(r)
+    dist_r = np.sum(np.abs(r - np.eye(3))) 
+    dist_t = (np.sum(np.abs(rt)) > 1e-8)
+
+    x_out, y_out, z_out = 0, 0, 0
+    # print(dist)
+    if dist_r < 1e-8 and dist_t > 1e-4:
+        # Only translation task
+        task = "translate"
+        x, y = get_translation(transform_mat, depth)
+
+        return task, (x, y)
+
+    elif dist_t <= 1e-4 and dist_r >= 1e-8:
+        # Only rotation
+        task = "rotate"
+        angle = get_azimuth_angle(r)
+
+        return task, angle
+
+    elif (dist_t < 1e-8) and (dist_r < 1e-4):
+        # Do nothing
+        task = "nothing"
+        return task, None
+
+    else:
+        # rotate and translate
+        task = "both"
+        x, y = get_translation(transform_mat, depth)
+        angle = get_azimuth_angle(r)
+
+        return task, (angle, x, y)
+
+
+
+
+
+    # elif (np.sum(np.abs(rt)) > 1e-8) and (not np.all(depth == 0.5)):
+        
+
+    #     mask_p = (((mask[..., 0] / 255.0) > 0.5) * 1.0)
+    #     depth_p, d_mask = process_depth(depth)
+    #     # print()
+    #     d_mean = np.mean(depth_p[(mask_p * d_mask) > 0.5])
+    #     # d_mean = np.sum(process_depth(depth) * mask_p) / np.sum(mask_p)
+    #     # print(d_mean)
+
+    #     # Use depth map before and after projection to get the true angle
+    #     rt[-1] += d_mean
+    #     t = np.array([0, 0, d_mean]).astype("float32")
+    #     # norm_t = np.linalg.norm(rt)
+    #     # print(t, rt)
+    #     x, y, z = cartesian_to_spherical(t[None])
+    #     # print(rt[None].shape)
+    #     xr, yr, zr = cartesian_to_spherical(rt[None, :])
+
+    #     x_out += xr - x
+    #     y_out += yr - y
+    #     z_out += zr - z
+
+
+    #     return x_out, y_out, z_out
+
+    return 
+
+def resize_image(image, aspect_ratio):
+
+    h, w = image.shape[:2]
+    ratio = aspect_ratio[1] / aspect_ratio[0]
+
+    h, w = 512, 512
+
+    if ratio < 1:
+        new_h, new_w = h / ratio, w
+    else:
+        new_h, new_w = h, ratio * w
+
+    img = cv2.resize(image, (int(new_w),int(new_h)))
+
+    # input_img = np.array(Image.fromarray(img).resize((w, h), Image.NEAREST))
+    return img
+    
 
 if __name__ == "__main__":
 
 
-    exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/1"
+    exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/64"
+    weights_folder = "../../../weights/object-edit/"
     exp_dict = read_exp(exp_folder)
     im = exp_dict["input_image_png"]
     im_mask = exp_dict["input_mask_png"]
-    # im_out = get_input(im, im_mask)
     transform_mat = exp_dict["transform_npy"]
     depth = exp_dict["depth_npy"]
+    im_size = exp_dict["image_shape_npy"]
 
-
+    print(transform_mat)
     
-    ckpt = "../../../weights/object-edit/translate.ckpt"
-    task = "translate"
-    input_im, output_ims = edit(im, task, "cat", ckpt, x = 0.9, y=0.6)
+    task, params = get_task_from_transform(transform_mat, depth)
 
-    plt.imsave("./geodiff_in.png", np.array(input_im))
-    plt.imsave("./geodiff_gen.png", np.array(output_ims[0]))
+    print(task, params)
+    category = "boat"
+    if task == "both":
+        a, x, y = params
+        task_1 = "rotate"
+        ckpt = weights_folder + task_1 + ".ckpt"
+        input_im, output_ims = edit(im, task_1, category, ckpt, rotation_angle=a)
+        im = np.array(output_ims[0])
+        plt.imsave("./geodiff_gen_1.png", resize_image(np.array(output_ims[0]), im_size))
+        task_2 = "translate"
+        ckpt = weights_folder + task_2 + ".ckpt"
+        input_im, output_ims = edit(im, task_2, category, ckpt, x = x, y=y)
+        plt.imsave("./geodiff_gen_2.png", resize_image(np.array(output_ims[0]), im_size))
+
+    elif task != "nothing":
+        ckpt = weights_folder + task + ".ckpt"
+        if task == "rotate":
+            input_im, output_ims = edit(im, task, category, ckpt, a = params)
+        else:
+            input_im, output_ims = edit(im, task, category, ckpt, x = params[0], y = params[1])
+
+        input_im, output_ims = edit(im, task, category, ckpt, x = 0.6, y=0.2)
+        plt.imsave("./geodiff_gen.png", resize_image(np.array(output_ims[0]), im_size))
+    else:
+        # Do nothing save input as generated
+        plt.imsave("./geodiff_gen.png", resize_image(np.array(input_im), im_size))
+        
+    plt.imsave("./geodiff_in.png", resize_image(np.array(input_im), im_size))
+    exit()
 
 
     pass

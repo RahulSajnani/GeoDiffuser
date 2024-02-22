@@ -168,6 +168,67 @@ def run(args):
     for i,img in enumerate(output_ims):
         img.save(os.path.join(args.save_dir,f"{i}.png"))
 
+
+def get_argument_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--task",
+        type=str,
+        required=True,
+        choices=["rotate","remove","insert","translate"]
+    )
+    parser.add_argument(
+        "--checkpoint_path",
+        type=str,
+        required=True
+    )
+    parser.add_argument(
+        "--image_path",
+        type=str,
+        required=True
+    )
+    parser.add_argument(
+        "--save_dir",
+        type=str,
+        default="generated_images"
+    )
+    parser.add_argument(
+        "--object_prompt",
+        type=str,
+        required=True
+    )
+    parser.add_argument(
+        "--rotation_angle",
+        type=float,
+        default=0.0
+    )
+    parser.add_argument(
+        "--position",
+        type=str,
+        default="0.5,0.5",
+        help="Coordinates in x,y form where 0 <= x,y <= 1"
+    )
+    parser.add_argument(
+        "--ddim_steps",
+        type=int,
+        default=50
+    )
+    parser.add_argument(
+        "--num_samples",
+        type=int,
+        default=8
+    )
+    parser.add_argument(
+        "--device",
+        type=int,
+        default=0
+    )
+    parser.add_argument(
+        "--cfg_scale",
+        type=float,
+        default=1.0
+    )
+
     
 
 
