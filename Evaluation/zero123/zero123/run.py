@@ -265,7 +265,26 @@ def translateMatrix(x, y, z):
     return translation_matrix
 
 
-def transformation_matrix_to_spherical_2(transform_mat):
+def process_depth(depth):
+    depth = depth.max() - depth
+    depth = depth / (depth.max() + 1e-8)
+    depth[depth > 0.9] = 1000000.0
+    mask = (depth < 100.0) * 1.0
+
+    return depth, mask
+    # # depth = 1.0 / depth
+    # # print(depth.min(), depth.max())
+
+    # # Constant depth case
+    # if np.sum(depth) == 0.0:
+    #     depth = np.ones_like(depth) * 0.5
+
+    
+    # if obj_mask is not None:
+    #     mask = obj_mask * mask
+
+
+def transformation_matrix_to_spherical_2(transform_mat, depth, mask):
 
     r = transform_mat[:3, :3]
     rt = transform_mat[:3, -1]
@@ -278,10 +297,20 @@ def transformation_matrix_to_spherical_2(transform_mat):
         rt = r.T @ t
         xr, yr, zr = cartesian_to_spherical(rt[None, :])
         return xr - x, yr - y, zr - z
-    elif np.sum(np.abs(rt)) > 1e-8:
-        rt[-1] += 1
-        norm_t = np.linalg.norm(rt)
-        t = np.array([0, 0, 1]).astype("float32") * norm_t
+    elif (np.sum(np.abs(rt)) > 1e-8) and (not np.all(depth == 0.5)):
+        
+
+        mask_p = (((mask[..., 0] / 255.0) > 0.5) * 1.0)
+        depth_p, d_mask = process_depth(depth)
+        # print()
+        d_mean = np.mean(depth_p[(mask_p * d_mask) > 0.5])
+        # d_mean = np.sum(process_depth(depth) * mask_p) / np.sum(mask_p)
+        # print(d_mean)
+
+        # Use depth map before and after projection to get the true angle
+        rt[-1] += d_mean
+        t = np.array([0, 0, d_mean]).astype("float32")
+        # norm_t = np.linalg.norm(rt)
         # print(t, rt)
         x, y, z = cartesian_to_spherical(t[None])
         # print(rt[None].shape)
@@ -343,7 +372,7 @@ if __name__ == "__main__":
 
     # exit()
 
-    exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/64"
+    exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/63"
 
     exp_dict = read_exp(exp_folder)
 
@@ -356,9 +385,11 @@ if __name__ == "__main__":
     im_mask = exp_dict["input_mask_png"]
     im_out = get_input(im, im_mask)
     transform_mat = exp_dict["transform_npy"]
+    depth = exp_dict["depth_npy"]
+    # print(depth.min(), depth.max())
     # print(transform_mat)
     # print(transform_mat)
-    x, y, z = transformation_matrix_to_spherical_2(transform_mat)
+    x, y, z = transformation_matrix_to_spherical_2(transform_mat, depth, im_mask)
     # x_i, y_i, z_i = transformation_matrix_to_spherical(np.eye(4).astype("float32"))
 
     # print(x - x_i, y - y_i, z - z_i)
