@@ -320,6 +320,7 @@ def transformation_matrix_to_spherical_2(transform_mat, depth, mask):
     rt = transform_mat[:3, -1]
     # print(r)
     dist = np.sum(np.abs(r - np.eye(3))) 
+    print(rt)
 
     x_out, y_out, z_out = 0, 0, 0
 
@@ -328,8 +329,10 @@ def transformation_matrix_to_spherical_2(transform_mat, depth, mask):
 
     # print(dist)
     if dist > 1e-8:
+        print("rotation only")
         t = np.array([0, 0, 1]).astype("float32")
         x, y, z = cartesian_to_spherical(t[None])
+        t = np.array([0, 0, rt[-1] + 1.0]).astype("float32")
         rt = r.T @ t
         xr, yr, zr = cartesian_to_spherical(rt[None, :])
 
@@ -340,31 +343,48 @@ def transformation_matrix_to_spherical_2(transform_mat, depth, mask):
         return x_out, y_out, z_out
 
 
-    elif (np.sum(np.abs(rt)) > 1e-8) and (not np.all(depth == 0.5)):
+    elif (np.sum(np.abs(rt)) > 1e-8):
         
+        print("translation only")
+        if (not np.all(depth == 0.5)):
+        
+            
+            mask_p = (((mask[..., 0] / 255.0) > 0.5) * 1.0)
+            depth_p, d_mask = process_depth(depth)
+            # print()
+            d_mean = np.mean(depth_p[(mask_p * d_mask) > 0.5])
+            # d_mean = np.sum(process_depth(depth) * mask_p) / np.sum(mask_p)
+            # print(d_mean)
 
-        mask_p = (((mask[..., 0] / 255.0) > 0.5) * 1.0)
-        depth_p, d_mask = process_depth(depth)
-        # print()
-        d_mean = np.mean(depth_p[(mask_p * d_mask) > 0.5])
-        # d_mean = np.sum(process_depth(depth) * mask_p) / np.sum(mask_p)
-        # print(d_mean)
+            # Use depth map before and after projection to get the true angle
+            rt[-1] += d_mean
+            t = np.array([0, 0, d_mean]).astype("float32")
+            # norm_t = np.linalg.norm(rt)
+            # print(t, rt)
+            x, y, z = cartesian_to_spherical(t[None])
+            # print(rt[None].shape)
+            xr, yr, zr = cartesian_to_spherical(rt[None, :])
 
-        # Use depth map before and after projection to get the true angle
-        rt[-1] += d_mean
-        t = np.array([0, 0, d_mean]).astype("float32")
-        # norm_t = np.linalg.norm(rt)
-        # print(t, rt)
-        x, y, z = cartesian_to_spherical(t[None])
-        # print(rt[None].shape)
-        xr, yr, zr = cartesian_to_spherical(rt[None, :])
-
-        x_out += xr - x
-        y_out += yr - y
-        z_out += zr - z
+            x_out += xr - x
+            y_out += yr - y
+            z_out += zr - z
 
 
-        return x_out, y_out, z_out
+            return x_out, y_out, z_out
+        else:
+            if rt[-1] > 0.0:
+                print("scaling")
+                t = np.array([0, 0, 0.5]).astype("float32")
+                rt[:2] = 0.0
+                # rt[-1] =
+                x, y, z = cartesian_to_spherical(t[None])
+                # print(rt[None].shape)
+                xr, yr, zr = cartesian_to_spherical(rt[None, :])
+
+                return xr - x, yr - y, (zr - z) * 6
+
+
+    
 
     return 0.0, 0.0, 0.0
 
@@ -605,6 +625,62 @@ def get_blend_image_and_inpainting_mask(im, mask, im2, mask2, center):
 
     return im, mask
 
+
+def run_and_save_zero123_single(exp_folder, model):
+    # continue
+    exp_folder = complete_path(exp_folder)
+    exp_dict = read_exp(exp_folder)
+
+
+    im = exp_dict["input_image_png"]
+    im_mask = exp_dict["input_mask_png"]
+    im_out, scale_factor = get_input(im, im_mask)
+    transform_mat = exp_dict["transform_npy"]
+    depth = exp_dict["depth_npy"]
+    transformed_mask = exp_dict["transformed_mask_square_png"]
+    im_size = exp_dict["image_shape_npy"]
+
+    ht_min, ht_max, wt_min, wt_max = get_mask_bounding_box(transformed_mask[..., 0] / 255.0)
+
+    # print("mask: ", ht_min, ht_max, wt_min, wt_max)
+    obj_center = (((ht_max + ht_min) / 2), (wt_min + wt_max)/2)
+
+
+    x, y, z = transformation_matrix_to_spherical_2(transform_mat, depth, im_mask)
+
+    print(x, y, z)
+    if x == None:
+        print("Skipping as det(R) < 0")
+        return 
+        # continue
+
+    # exit()
+
+    im_out_gen = run_zero123(model, im_out, x=-x, y=y, z=-z)
+    im_out_gen = np.array(im_out_gen[0])
+    mask_out = get_mask_from_output(im_out_gen)
+
+    im_obj, m_obj = crop_image(im_out_gen, mask_out)
+
+    old_h, old_w = m_obj.shape
+    new_h, new_w = old_h / scale_factor, old_w / scale_factor
+    im_obj = cv2.resize(im_obj, (int(new_w),int(new_h)))
+    m_obj = cv2.resize(m_obj, (int(new_w),int(new_h)))
+
+
+    im_blended, inpainting_mask = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center)
+
+    out_path_dir = exp_folder + "zero123/"
+    os.makedirs(out_path_dir, exist_ok = True)
+    
+
+    plt.imsave(out_path_dir + "zero123_input.png", im_out)
+    plt.imsave(out_path_dir + "blended.png", resize_image(im_blended, im_size))
+    plt.imsave(out_path_dir + "inpainting_mask.png", resize_image(inpainting_mask, im_size), cmap="gray")
+    plt.imsave(out_path_dir + "out_gen.png", im_obj)
+    plt.imsave(out_path_dir + "out_gen_mask.png", m_obj, cmap="gray")
+
+
 def generate_zero_123_results(exp_root_folder, model):
 
     folder_list = glob.glob(complete_path(exp_root_folder) + "**/")
@@ -618,55 +694,8 @@ def generate_zero_123_results(exp_root_folder, model):
         num_k +=1
         print("Performing edit on: ", exp_folder)
         
-        
-        # continue
-        exp_folder = complete_path(exp_folder)
-        exp_dict = read_exp(exp_folder)
-
-
-        im = exp_dict["input_image_png"]
-        im_mask = exp_dict["input_mask_png"]
-        im_out, scale_factor = get_input(im, im_mask)
-        transform_mat = exp_dict["transform_npy"]
-        depth = exp_dict["depth_npy"]
-        transformed_mask = exp_dict["transformed_mask_square_png"]
-        im_size = exp_dict["image_shape_npy"]
-
-        ht_min, ht_max, wt_min, wt_max = get_mask_bounding_box(transformed_mask[..., 0] / 255.0)
-
-        # print("mask: ", ht_min, ht_max, wt_min, wt_max)
-        obj_center = (((ht_max + ht_min) / 2), (wt_min + wt_max)/2)
-
-
-        x, y, z = transformation_matrix_to_spherical_2(transform_mat, depth, im_mask)
-
-        if x == None:
-            print("Skipping as det(R) < 0")
-            continue
-
-        im_out_gen = run_zero123(model, im_out, x=-x, y=y, z=z)
-        im_out_gen = np.array(im_out_gen[0])
-        mask_out = get_mask_from_output(im_out_gen)
-
-        im_obj, m_obj = crop_image(im_out_gen, mask_out)
-
-        old_h, old_w = m_obj.shape
-        new_h, new_w = old_h / scale_factor, old_w / scale_factor
-        im_obj = cv2.resize(im_obj, (int(new_w),int(new_h)))
-        m_obj = cv2.resize(m_obj, (int(new_w),int(new_h)))
-
-
-        im_blended, inpainting_mask = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center)
-
-        out_path_dir = exp_folder + "zero123/"
-        os.makedirs(out_path_dir, exist_ok = True)
-       
-
-        plt.imsave(out_path_dir + "blended.png", resize_image(im_blended, im_size))
-        plt.imsave(out_path_dir + "inpainting_mask.png", resize_image(inpainting_mask, im_size), cmap="gray")
-        plt.imsave(out_path_dir + "out_gen.png", im_obj)
-        plt.imsave(out_path_dir + "out_gen_mask.png", m_obj, cmap="gray")
-
+        run_and_save_zero123_single(exp_folder, model)    
+    
         # if num_k == 2:
         #     exit()
 
@@ -684,63 +713,10 @@ if __name__ == "__main__":
 
     exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/"
     generate_zero_123_results(exp_root_folder, model)
-    exit()
+    # exit()
 
-
-    exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/63"
-
-    exp_dict = read_exp(exp_folder)
-
-    # list_exp_details(exp_dict)
-
+    # model = None
+    # exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/2"
+    # run_and_save_zero123_single(exp_folder, model)
 
     
-
-    im = exp_dict["input_image_png"]
-    im_mask = exp_dict["input_mask_png"]
-    im_out, scale_factor = get_input(im, im_mask)
-    transform_mat = exp_dict["transform_npy"]
-    depth = exp_dict["depth_npy"]
-    transformed_mask = exp_dict["transformed_mask_square_png"]
-
-    ht_min, ht_max, wt_min, wt_max = get_mask_bounding_box(transformed_mask[..., 0] / 255.0)
-
-    # print("mask: ", ht_min, ht_max, wt_min, wt_max)
-    obj_center = (((ht_max + ht_min) / 2), (wt_min + wt_max)/2)
-
-
-    x, y, z = transformation_matrix_to_spherical_2(transform_mat, depth, im_mask)
-    print("theta = ", x, "phi = ", y, z)
-
-
-
-    plt.imsave("./test/out_in.png", im_out)
-    im_out_gen = run_zero123(model, im_out, x=x, y=y, z=z)
-
-    im_out_gen = np.array(im_out_gen[0])
-
-    mask_out = get_mask_from_output(im_out_gen)
-    # print(mask_out.max(), im_out_gen.max(), mask_out.shape)
-
-    im_obj, m_obj = crop_image(im_out_gen, mask_out)
-
-    old_h, old_w = m_obj.shape
-    new_h, new_w = old_h / scale_factor, old_w / scale_factor
-    im_obj = cv2.resize(im_obj, (int(new_w),int(new_h)))
-    m_obj = cv2.resize(m_obj, (int(new_w),int(new_h)))
-
-
-    im_blended, inpainting_mask = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center)
-
-
-
-    # print(im_out_gen.shape, im_out_gen.min(), im_out_gen.max())
-    plt.imsave("./test/out_gen.png", im_obj)
-    plt.imsave("./test/blended.png", im_blended)
-    plt.imsave("./test/out_gen_mask.png", m_obj, cmap="gray")
-    plt.imsave("./test/inpainting_mask.png", inpainting_mask, cmap="gray")
-    # plt.imsave("./test/transformed.png", transformed_mask, cmap="gray")
-
-
-
-    pass
