@@ -1,0 +1,6 @@
+First run zero123 to edit (Make sure you change path in the file)
+python3 run.py
+
+
+Run lama to inpaint
+CUDA_VISIBLE_DEVICES=0 python3 -m bin.predict_zero123 model.path=$(pwd)/big-lama indir=$(pwd)/../../../../test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/ outdir=$(pwd)/outputs_geodiff
