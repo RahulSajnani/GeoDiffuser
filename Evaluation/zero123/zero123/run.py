@@ -186,14 +186,24 @@ def get_input(input_im, mask_im):
 
     # print(h_out, w_out, "before")
 
-    if h_out > w_out:
-        scale_factor = 200 / h_out
-    else:
-        scale_factor = 200 / w_out
 
     image = PIL.Image.fromarray(np.array(im_out))
+
     # resize image such that long edge is 512
     image.thumbnail([200, 200], PIL.Image.Resampling.LANCZOS)
+
+    h_t, w_t = image.size
+
+    s_max = h_t
+    if w_t > h_t:
+        s_max = w_t
+
+    print("Max size: ", s_max)
+
+    if h_out > w_out:
+        scale_factor = s_max / h_out
+    else:
+        scale_factor = s_max / w_out
     # print(image.size, "after,", scale_factor, image.size[0] / scale_factor, image.size[1] / scale_factor)
     image = add_margin(image, (255, 255, 255), size=256)
     image = np.array(image)
@@ -487,9 +497,24 @@ def get_mask_from_output(im):
     return mask
 
 
+def remove_noise_from_mask(mask):
+
+    if mask.max() <= 1.0:
+        mask = (mask * 255.0).astype("uint8")
+
+    kernel = np.ones((3,3),np.uint8)
+    erosion = cv2.erode(mask , kernel,iterations = 1)
+    dilation = cv2.dilate(erosion, kernel,iterations = 1)
+
+    mask = dilation / 255.0
+
+    return mask
+
 
 def get_mask_bounding_box(mask):
 
+
+    mask = remove_noise_from_mask(mask)
     h_ind, w_ind = np.indices(mask.shape)
 
     h_min, h_max = h_ind[mask > 0.5].min(), h_ind[mask > 0.5].max()
@@ -619,7 +644,7 @@ def generate_zero_123_results(exp_root_folder, model):
             print("Skipping as det(R) < 0")
             continue
 
-        im_out_gen = run_zero123(model, im_out, x=x, y=y, z=z)
+        im_out_gen = run_zero123(model, im_out, x=-x, y=y, z=z)
         im_out_gen = np.array(im_out_gen[0])
         mask_out = get_mask_from_output(im_out_gen)
 
@@ -646,6 +671,8 @@ def generate_zero_123_results(exp_root_folder, model):
         #     exit()
 
     return
+
+
 
 
 if __name__ == "__main__":
