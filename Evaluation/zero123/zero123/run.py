@@ -15,7 +15,8 @@ import torch
 from segment_anything import SamPredictor, sam_model_registry
 import cv2
 from scipy.ndimage import maximum_filter
-
+from simple_lama_inpainting import SimpleLama
+from PIL import Image
 SAM_MODEL = None
 
 
@@ -501,7 +502,7 @@ def get_blend_image_and_inpainting_mask(im, mask, im2, mask2, center):
 
     
     mask[h_top:h_bottom, w_left:w_right][mask_paste_im > 0.5] = 1.0
-    mask = maximum_filter(mask, 10)
+    mask = maximum_filter(mask, 15)
     mask[h_top:h_bottom, w_left:w_right][mask_paste_im > 0.5] = 0.0
 
 
@@ -558,9 +559,16 @@ if __name__ == "__main__":
 
 
     im_blended, inpainting_mask = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center)
-    plt.imsave("./test/blended.png", im_blended)
-    plt.imsave("./test/transformed.png", transformed_mask, cmap="gray")
-    plt.imsave("./test/inpainting_mask.png", inpainting_mask, cmap="gray")
+
+    simple_lama = SimpleLama()
+
+    # plt.imsave("./test/blended.png", im_blended)
+    # plt.imsave("./test/transformed.png", transformed_mask, cmap="gray")
+    # plt.imsave("./test/inpainting_mask.png", inpainting_mask, cmap="gray")
+    im_blended_lama = Image.fromarray(im_blended)
+    inpainting_mask_lama = Image.fromarray((inpainting_mask * 255).astype("uint8"))
+    result = simple_lama(im_blended_lama, inpainting_mask_lama)
+    result.save("./test/final_result.png")
     exit()
 
     # resize_image(transformed_mask)
