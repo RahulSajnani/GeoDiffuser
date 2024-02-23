@@ -12,7 +12,9 @@ from ldm.models.diffusion.ddim import DDIMSampler
 from contextlib import nullcontext
 from omegaconf import OmegaConf
 import torch
-
+from segment_anything import SamPredictor, sam_model_registry
+import cv2
+SAM_MODEL = None
 
 
 def initialize_models(config, ckpt, device="cuda"):
@@ -103,8 +105,9 @@ def read_exp(d_path):
     
     transformed_image_path = save_folder + "transformed_image.png"
     result_path = save_folder + "result.png"
+    transformed_mask_path = save_folder + "ours/transformed_mask_square.png"
     
-    all_paths = [img_path, depth_path, mask_path, bg_path, depth_vis_path, transform_path, transformed_image_path, result_path, im_shape]
+    all_paths = [img_path, depth_path, mask_path, bg_path, depth_vis_path, transform_path, transformed_image_path, result_path, im_shape, transformed_mask_path]
     
     out_dict = {}
     for f_name in all_paths:
@@ -123,6 +126,7 @@ def read_exp(d_path):
         out_dict["image_shape_npy"] = np.array([512, 512])
     out_dict["path_name"] = d_path
     return out_dict
+
 
 def list_exp_details(exp_dict):
 
@@ -174,16 +178,25 @@ def get_input(input_im, mask_im):
     im_out[im_mask_out < 0.5] = 1.0
     im_out = (im_out * 255.0).astype("uint8")
 
+    h_out, w_out, _ = im_out.shape
+
+    # print(h_out, w_out, "before")
+
+    if h_out > w_out:
+        scale_factor = 200 / h_out
+    else:
+        scale_factor = 200 / w_out
+
     image = PIL.Image.fromarray(np.array(im_out))
-    
     # resize image such that long edge is 512
     image.thumbnail([200, 200], PIL.Image.Resampling.LANCZOS)
+    # print(image.size, "after,", scale_factor, image.size[0] / scale_factor, image.size[1] / scale_factor)
     image = add_margin(image, (255, 255, 255), size=256)
     image = np.array(image)
 
     image = (image / 255.0).astype(np.float32)
 
-    return image
+    return image, scale_factor
 
 def rotateAxis(degrees, axis):
     '''
@@ -290,13 +303,22 @@ def transformation_matrix_to_spherical_2(transform_mat, depth, mask):
     rt = transform_mat[:3, -1]
     # print(r)
     dist = np.sum(np.abs(r - np.eye(3))) 
+
+    x_out, y_out, z_out = 0, 0, 0
     # print(dist)
     if dist > 1e-8:
         t = np.array([0, 0, 1]).astype("float32")
         x, y, z = cartesian_to_spherical(t[None])
         rt = r.T @ t
         xr, yr, zr = cartesian_to_spherical(rt[None, :])
-        return xr - x, yr - y, zr - z
+
+        x_out += xr - x
+        y_out += yr - y
+        z_out += zr - z
+
+        return x_out, y_out, z_out
+
+
     elif (np.sum(np.abs(rt)) > 1e-8) and (not np.all(depth == 0.5)):
         
 
@@ -315,10 +337,14 @@ def transformation_matrix_to_spherical_2(transform_mat, depth, mask):
         x, y, z = cartesian_to_spherical(t[None])
         # print(rt[None].shape)
         xr, yr, zr = cartesian_to_spherical(rt[None, :])
-        return xr - x, yr - y, zr - z
 
-    else:
-        return 0, 0, 0
+        x_out += xr - x
+        y_out += yr - y
+        z_out += zr - z
+
+
+        return x_out, y_out, z_out
+
 
 
 def transformation_matrix_to_spherical(transform_mat):
@@ -354,6 +380,124 @@ def transformation_matrix_to_spherical(transform_mat):
     return cartesian_to_spherical(T_cond[None, :])
 
 
+def get_mask_prediction(image, h, w, model_path = "/home/ec2-user/SageMaker/test_sd/segment-anything/weights/sam_vit_h_4b8939.pth"):
+
+    global SAM_MODEL
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if SAM_MODEL is None:
+        sam = sam_model_registry["vit_h"](checkpoint=model_path).to(device)
+        SAM_MODEL = sam
+    else:
+        sam = SAM_MODEL
+    predictor = SamPredictor(sam)
+    
+
+
+    predictor.set_image(image)
+    h = float(h)
+    w = float(w)
+
+    input_points = np.array([[image.shape[1] * w, image.shape[0] * h]])
+    input_label = np.array([1])
+    masks, _, _ = predictor.predict(input_points, input_label)
+
+    image_mask = masks[-1] * 1.0
+
+    return image_mask
+
+def get_mask_from_output(im):
+    mask = get_mask_prediction(im, 0.5, 0.5, "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/segment-anything/weights/sam_vit_h_4b8939.pth")
+
+    return mask
+
+
+
+def get_mask_bounding_box(mask):
+
+    h_ind, w_ind = np.indices(mask.shape)
+
+    h_min, h_max = h_ind[mask > 0.5].min(), h_ind[mask > 0.5].max()
+    w_min, w_max = w_ind[mask > 0.5].min(), w_ind[mask > 0.5].max()
+
+    return h_min, h_max, w_min, w_max
+
+
+def crop_image(im, mask):
+
+    h_min, h_max, w_min, w_max = get_mask_bounding_box(mask)
+    return im[h_min:h_max, w_min:w_max], mask[h_min:h_max, w_min:w_max]
+    # im[mask]
+
+
+def resize_image(image, aspect_ratio):
+
+    h, w = image.shape[:2]
+    ratio = aspect_ratio[1] / aspect_ratio[0]
+
+    h, w = 512, 512
+
+    if ratio < 1:
+        new_h, new_w = h / ratio, w
+    else:
+        new_h, new_w = h, ratio * w
+
+    img = cv2.resize(image, (int(new_w),int(new_h)))
+
+    # input_img = np.array(Image.fromarray(img).resize((w, h), Image.NEAREST))
+    return img
+
+
+def blend_image(im, im2, mask2, center):
+    h, w, _ = im.shape
+    h_in, w_in, _ = im2.shape
+
+    # print(im.shape, im2.shape)
+    im2_center = (h_in // 2, w_in // 2)
+    # print(center, im2_center, im.shape)
+
+    h_top = int(center[0] - im2_center[0])
+    h_bottom = h_top + h_in 
+    w_left = int(center[1] - im2_center[1])
+    w_right = w_left + w_in
+
+
+    # print(h_top, h_bottom, w_left, w_right)
+    paste_im = im2
+    mask_paste_im = mask2
+
+    if h_top < 0:
+        paste_im = paste_im[-h_top:]
+        mask_paste_im = mask_paste_im[-h_top:]
+        
+        h_top = 0
+
+    if h_bottom > h:
+
+        d = h_bottom - h + 1
+        print(d)
+        paste_im = paste_im[:-d]
+        mask_paste_im = mask_paste_im[:-d]
+        h_bottom = h - 1
+
+    if w_left < 0:
+        paste_im = paste_im[:, -w_left:]
+        mask_paste_im = mask_paste_im[:, -w_left:]
+        w_left = 0
+    
+    if w_right > w:
+
+        d = w_right - w + 1
+        print(d)
+        paste_im = paste_im[:, :-d]
+        mask_paste_im = mask_paste_im[:, :-d]
+        w_right = w - 1
+
+    print(h_top, h_bottom, w_left, w_right)
+
+    im[h_top:h_bottom, w_left:w_right] = paste_im * mask_paste_im[..., None] + (1.0 - mask_paste_im[..., None]) * im[h_top:h_bottom, w_left:w_right]
+
+    return im
 
 
 if __name__ == "__main__":
@@ -383,9 +527,34 @@ if __name__ == "__main__":
 
     im = exp_dict["input_image_png"]
     im_mask = exp_dict["input_mask_png"]
-    im_out = get_input(im, im_mask)
+    im_out, scale_factor = get_input(im, im_mask)
     transform_mat = exp_dict["transform_npy"]
     depth = exp_dict["depth_npy"]
+    transformed_mask = exp_dict["transformed_mask_square_png"]
+
+    ht_min, ht_max, wt_min, wt_max = get_mask_bounding_box(transformed_mask[..., 0] / 255.0)
+
+    # print("mask: ", ht_min, ht_max, wt_min, wt_max)
+    obj_center = (((ht_max + ht_min) / 2), (wt_min + wt_max)/2)
+
+
+    im_obj = read_image("./test/out_gen.png")
+    m_obj = read_image("./test/out_gen_mask.png")[..., 0] / 255.0
+
+    old_h, old_w = m_obj.shape
+
+    print(old_h, old_w)
+    # new_h, new_w = old_h / scale_factor, old_w / scale_factor
+    # im_obj = cv2.resize(im_obj, (int(new_w),int(new_h)))
+    # m_obj = cv2.resize(m_obj, (int(new_w),int(new_h)))
+
+
+    im_blended = blend_image(im, im_obj, m_obj, obj_center)
+    plt.imsave("./test/blended.png", im_blended)
+    plt.imsave("./test/transformed.png", transformed_mask, cmap="gray")
+    exit()
+
+    # resize_image(transformed_mask)
     # print(depth.min(), depth.max())
     # print(transform_mat)
     # print(transform_mat)
@@ -410,12 +579,30 @@ if __name__ == "__main__":
     config = OmegaConf.load(config)
     model = initialize_models(config, ckpt)
 
-    plt.imsave("./out_in.png", im_out)
+    plt.imsave("./test/out_in.png", im_out)
     im_out_gen = run_zero123(model, im_out, x=x, y=y, z=z)
 
-    im_out_gen = im_out_gen[0]
+    im_out_gen = np.array(im_out_gen[0])
+
+    mask_out = get_mask_from_output(im_out_gen)
+    # print(mask_out.max(), im_out_gen.max(), mask_out.shape)
+
+    im_obj, m_obj = crop_image(im_out_gen, mask_out)
+
+    old_h, old_w = m_obj.shape
+    new_h, new_w = old_h / scale_factor, old_w / scale_factor
+    im_obj = cv2.resize(im_obj, (int(new_w),int(new_h)))
+    m_obj = cv2.resize(m_obj, (int(new_w),int(new_h)))
+
+
+    im_blended = blend_image(im, im_obj, m_obj, obj_center)
+
+
+
     # print(im_out_gen.shape, im_out_gen.min(), im_out_gen.max())
-    plt.imsave("./out_gen.png", np.array(im_out_gen))
+    plt.imsave("./test/out_gen.png", im_obj)
+    plt.imsave("./test/blended.png", im_blended)
+    plt.imsave("./test/out_gen_mask.png", m_obj, cmap="gray")
 
 
 
