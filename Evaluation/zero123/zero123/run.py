@@ -17,6 +17,7 @@ import cv2
 from scipy.ndimage import maximum_filter
 from simple_lama_inpainting import SimpleLama
 from PIL import Image
+import glob
 SAM_MODEL = None
 
 
@@ -303,11 +304,18 @@ def process_depth(depth):
 def transformation_matrix_to_spherical_2(transform_mat, depth, mask):
 
     r = transform_mat[:3, :3]
+    print(r)
+    if np.linalg.det(r) != 1:
+        return None, None, None
     rt = transform_mat[:3, -1]
     # print(r)
     dist = np.sum(np.abs(r - np.eye(3))) 
 
     x_out, y_out, z_out = 0, 0, 0
+
+    # R = transform_mat[:3, :3]
+    # Reflection case
+
     # print(dist)
     if dist > 1e-8:
         t = np.array([0, 0, 1]).astype("float32")
@@ -348,6 +356,7 @@ def transformation_matrix_to_spherical_2(transform_mat, depth, mask):
 
         return x_out, y_out, z_out
 
+    return 0.0, 0.0, 0.0
 
 
 def transformation_matrix_to_spherical(transform_mat):
@@ -364,6 +373,11 @@ def transformation_matrix_to_spherical(transform_mat):
     # # transform_mat = convert_transform_geodiff_to_zero123(transform_mat)
     # R, T = transform_mat[:3, :3], transform_mat[:3, -1]
     # T_cond = -R.T @ T
+    R = transform_mat[:3, :3]
+    # Reflection case
+    if np.linalg.det(R) < 0:
+        return None, None, None
+
     T_cond = transform_mat[:3, -1]
     print(T_cond)
     # T_cond[0] *= -1
@@ -409,8 +423,66 @@ def get_mask_prediction(image, h, w, model_path = "/home/ec2-user/SageMaker/test
 
     return image_mask
 
+
+def get_initial_mask(im):
+
+    r = im[:, :, 0]
+    g = im[:, :, 1]
+    b = im[:, :, 2]
+    rg_close = np.abs(r - g) < 10
+    gb_close = np.abs(g - b) < 10
+    br_close = np.abs(b - r) < 10
+
+    all_close = np.logical_and(np.logical_and(rg_close, gb_close), br_close)
+
+
+    all_close = all_close * 1.0
+
+    return all_close
+
+def get_point_on_obj(im):
+
+    # im_mask = get_initial_mask(im)
+
+    print(im.max(), im.min())
+    r = im[:, :, 0]
+    g = im[:, :, 1]
+    b = im[:, :, 2]
+    rg = np.abs(r.astype("float32") - 255.0)
+    gb = np.abs(g.astype("float32") - 255.0)
+    br = np.abs(b.astype("float32") - 255.0)
+    # w = np.abs(r - 255)
+
+    dist = rg + gb + br #+ w
+
+
+    w_max = np.argmax(dist, -1)
+    max_val = np.max(dist, -1)
+    h_max = np.argmax(max_val)
+    max_val = np.max(max_val)
+    w_max = w_max[h_max]
+
+    # print(h_max, w_max, max_val, dist[h_max, w_max])
+    
+    # print(np.argmax(dist, -1))
+    ind = (h_max, w_max)
+    # ind = np.unravel_index(np.argmax(dist, axis=None), dist.shape)
+
+    # print(dist[ind])
+    # print(ind)
+
+    ind = (ind[0] / dist.shape[0], ind[1] / dist.shape[1])
+    # exit()
+    return ind
+    # return all_close
+
+
 def get_mask_from_output(im):
-    mask = get_mask_prediction(im, 0.5, 0.5, "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/segment-anything/weights/sam_vit_h_4b8939.pth")
+
+    h, w = get_point_on_obj(im)
+    print(h, w)
+    
+    mask = get_mask_prediction(im, h, w, "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/segment-anything/weights/sam_vit_h_4b8939.pth")
 
     return mask
 
@@ -496,7 +568,7 @@ def get_blend_image_and_inpainting_mask(im, mask, im2, mask2, center):
         mask_paste_im = mask_paste_im[:, :-d]
         w_right = w - 1
 
-    print(h_top, h_bottom, w_left, w_right)
+    # print(h_top, h_bottom, w_left, w_right)
 
     im[h_top:h_bottom, w_left:w_right] = paste_im * mask_paste_im[..., None] + (1.0 - mask_paste_im[..., None]) * im[h_top:h_bottom, w_left:w_right]
 
@@ -508,22 +580,85 @@ def get_blend_image_and_inpainting_mask(im, mask, im2, mask2, center):
 
     return im, mask
 
+def generate_zero_123_results(exp_root_folder, model):
+
+    folder_list = glob.glob(complete_path(exp_root_folder) + "**/")
+    folder_list.sort()
+
+
+    num_k = 0
+
+    for exp_folder in folder_list:
+        
+        num_k +=1
+        print("Performing edit on: ", exp_folder)
+        
+        
+        # continue
+        exp_folder = complete_path(exp_folder)
+        exp_dict = read_exp(exp_folder)
+
+
+        im = exp_dict["input_image_png"]
+        im_mask = exp_dict["input_mask_png"]
+        im_out, scale_factor = get_input(im, im_mask)
+        transform_mat = exp_dict["transform_npy"]
+        depth = exp_dict["depth_npy"]
+        transformed_mask = exp_dict["transformed_mask_square_png"]
+        im_size = exp_dict["image_shape_npy"]
+
+        ht_min, ht_max, wt_min, wt_max = get_mask_bounding_box(transformed_mask[..., 0] / 255.0)
+
+        # print("mask: ", ht_min, ht_max, wt_min, wt_max)
+        obj_center = (((ht_max + ht_min) / 2), (wt_min + wt_max)/2)
+
+
+        x, y, z = transformation_matrix_to_spherical_2(transform_mat, depth, im_mask)
+
+        if x == None:
+            print("Skipping as det(R) < 0")
+            continue
+
+        im_out_gen = run_zero123(model, im_out, x=x, y=y, z=z)
+        im_out_gen = np.array(im_out_gen[0])
+        mask_out = get_mask_from_output(im_out_gen)
+
+        im_obj, m_obj = crop_image(im_out_gen, mask_out)
+
+        old_h, old_w = m_obj.shape
+        new_h, new_w = old_h / scale_factor, old_w / scale_factor
+        im_obj = cv2.resize(im_obj, (int(new_w),int(new_h)))
+        m_obj = cv2.resize(m_obj, (int(new_w),int(new_h)))
+
+
+        im_blended, inpainting_mask = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center)
+
+        out_path_dir = exp_folder + "zero123/"
+        os.makedirs(out_path_dir, exist_ok = True)
+       
+
+        plt.imsave(out_path_dir + "blended.png", resize_image(im_blended, im_size))
+        plt.imsave(out_path_dir + "inpainting_mask.png", resize_image(inpainting_mask, im_size), cmap="gray")
+        plt.imsave(out_path_dir + "out_gen.png", im_obj)
+        plt.imsave(out_path_dir + "out_gen_mask.png", m_obj, cmap="gray")
+
+        # if num_k == 2:
+        #     exit()
+
+    return
+
 
 if __name__ == "__main__":
 
+    ckpt='105000.ckpt'
+    config='configs/sd-objaverse-finetune-c_concat-256.yaml'
+    config = OmegaConf.load(config)
+    model = initialize_models(config, ckpt)
 
-    # t = rotateAxis(90, 0) @ translateMatrix(0, 0, 1)
-    # print(transformation_matrix_to_spherical(t))
+    exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/"
+    generate_zero_123_results(exp_root_folder, model)
+    exit()
 
-    # t = rotateAxis(90, 1) @ translateMatrix(0, 0, 1)
-    # print(t)
-    # print(transformation_matrix_to_spherical(t))
-
-    # t = rotateAxis(90, 2) @ translateMatrix(0, 0, 1)
-    # # print(t)
-    # print(transformation_matrix_to_spherical(t))
-
-    # exit()
 
     exp_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/63"
 
@@ -547,54 +682,10 @@ if __name__ == "__main__":
     obj_center = (((ht_max + ht_min) / 2), (wt_min + wt_max)/2)
 
 
-    im_obj = read_image("./test/out_gen.png")
-    m_obj = read_image("./test/out_gen_mask.png")[..., 0] / 255.0
-
-    old_h, old_w = m_obj.shape
-
-    print(old_h, old_w)
-    # new_h, new_w = old_h / scale_factor, old_w / scale_factor
-    # im_obj = cv2.resize(im_obj, (int(new_w),int(new_h)))
-    # m_obj = cv2.resize(m_obj, (int(new_w),int(new_h)))
-
-
-    im_blended, inpainting_mask = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center)
-
-    simple_lama = SimpleLama()
-
-    # plt.imsave("./test/blended.png", im_blended)
-    # plt.imsave("./test/transformed.png", transformed_mask, cmap="gray")
-    # plt.imsave("./test/inpainting_mask.png", inpainting_mask, cmap="gray")
-    im_blended_lama = Image.fromarray(im_blended)
-    inpainting_mask_lama = Image.fromarray((inpainting_mask * 255).astype("uint8"))
-    result = simple_lama(im_blended_lama, inpainting_mask_lama)
-    result.save("./test/final_result.png")
-    exit()
-
-    # resize_image(transformed_mask)
-    # print(depth.min(), depth.max())
-    # print(transform_mat)
-    # print(transform_mat)
     x, y, z = transformation_matrix_to_spherical_2(transform_mat, depth, im_mask)
-    # x_i, y_i, z_i = transformation_matrix_to_spherical(np.eye(4).astype("float32"))
-
-    # print(x - x_i, y - y_i, z - z_i)
-    # # y should be 19 for this
-    # print("current: ", x, y, z)
-    # x = 0
-    # y = 19
-    # z = 0
-    # print("expected:", x, y, z)
-    # x = x - 90
-    # y = y - 90
-    # z = z - 0
     print("theta = ", x, "phi = ", y, z)
-    # exit()
 
-    ckpt='105000.ckpt'
-    config='configs/sd-objaverse-finetune-c_concat-256.yaml'
-    config = OmegaConf.load(config)
-    model = initialize_models(config, ckpt)
+
 
     plt.imsave("./test/out_in.png", im_out)
     im_out_gen = run_zero123(model, im_out, x=x, y=y, z=z)
@@ -620,7 +711,8 @@ if __name__ == "__main__":
     plt.imsave("./test/out_gen.png", im_obj)
     plt.imsave("./test/blended.png", im_blended)
     plt.imsave("./test/out_gen_mask.png", m_obj, cmap="gray")
-
+    plt.imsave("./test/inpainting_mask.png", inpainting_mask, cmap="gray")
+    # plt.imsave("./test/transformed.png", transformed_mask, cmap="gray")
 
 
 
