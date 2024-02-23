@@ -14,6 +14,8 @@ from omegaconf import OmegaConf
 import torch
 from segment_anything import SamPredictor, sam_model_registry
 import cv2
+from scipy.ndimage import maximum_filter
+
 SAM_MODEL = None
 
 
@@ -448,7 +450,7 @@ def resize_image(image, aspect_ratio):
     return img
 
 
-def blend_image(im, im2, mask2, center):
+def get_blend_image_and_inpainting_mask(im, mask, im2, mask2, center):
     h, w, _ = im.shape
     h_in, w_in, _ = im2.shape
 
@@ -497,7 +499,13 @@ def blend_image(im, im2, mask2, center):
 
     im[h_top:h_bottom, w_left:w_right] = paste_im * mask_paste_im[..., None] + (1.0 - mask_paste_im[..., None]) * im[h_top:h_bottom, w_left:w_right]
 
-    return im
+    
+    mask[h_top:h_bottom, w_left:w_right][mask_paste_im > 0.5] = 1.0
+    mask = maximum_filter(mask, 10)
+    mask[h_top:h_bottom, w_left:w_right][mask_paste_im > 0.5] = 0.0
+
+
+    return im, mask
 
 
 if __name__ == "__main__":
@@ -549,9 +557,10 @@ if __name__ == "__main__":
     # m_obj = cv2.resize(m_obj, (int(new_w),int(new_h)))
 
 
-    im_blended = blend_image(im, im_obj, m_obj, obj_center)
+    im_blended, inpainting_mask = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center)
     plt.imsave("./test/blended.png", im_blended)
     plt.imsave("./test/transformed.png", transformed_mask, cmap="gray")
+    plt.imsave("./test/inpainting_mask.png", inpainting_mask, cmap="gray")
     exit()
 
     # resize_image(transformed_mask)
@@ -595,7 +604,7 @@ if __name__ == "__main__":
     m_obj = cv2.resize(m_obj, (int(new_w),int(new_h)))
 
 
-    im_blended = blend_image(im, im_obj, m_obj, obj_center)
+    im_blended, inpainting_mask = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center)
 
 
 
