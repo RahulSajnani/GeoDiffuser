@@ -15,7 +15,7 @@ from skimage.transform import rescale, resize
 from torch.utils.data import Dataset, IterableDataset, DataLoader, DistributedSampler, ConcatDataset
 
 from saicinpainting.evaluation.data import InpaintingDataset as InpaintingEvaluationDataset, \
-    OurInpaintingDataset as OurInpaintingEvaluationDataset, ceil_modulo, InpaintingEvalOnlineDataset, load_image, GeodiffInpaintingDataset
+    OurInpaintingDataset as OurInpaintingEvaluationDataset, ceil_modulo, InpaintingEvalOnlineDataset, load_image, GeodiffInpaintingDataset, Zero123InpaintingDataset
 from saicinpainting.training.data.aug import IAAAffine2, IAAPerspective2
 from saicinpainting.training.data.masks import get_mask_generator
 from torch.utils.data import Dataset
@@ -265,6 +265,8 @@ def make_default_val_dataset(indir, kind='default', out_size=512, transform_vari
         dataset = InpaintingEvaluationDataset(indir, **kwargs)
     elif kind == "geodiff":
         dataset = GeodiffInpaintingDataset(indir, **kwargs)
+    elif kind == "zero123":
+        dataset = Zero123InpaintingDataset(indir, **kwargs)
     elif kind == 'our_eval':
         dataset = OurInpaintingEvaluationDataset(indir, **kwargs)
     elif kind == 'img_with_segm':
