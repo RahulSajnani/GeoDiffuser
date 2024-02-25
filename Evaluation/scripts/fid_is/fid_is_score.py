@@ -69,9 +69,9 @@ parser.add_argument('--dims', type=int, default=2048,
                     help=('Dimensionality of Inception features to use. '
                           'By default, uses pool3 features'))
 parser.add_argument('-c', '--gpu', default='', type=str,
-                    help='GPU to use (leave blank for CPU only)')
+                    help='GPU to use for example --gpu 0 (leave blank for CPU only)')
 parser.add_argument('--resize', default=256)
-parser.add_argument('--mode', default='FID', help='Calculate the Inception Score for generated images')
+parser.add_argument('--mode', default='FID', help='set to FID or IS to calculate scores')
 
 transform = Compose([Resize(256), CenterCrop(256), ToTensor()])
 IMAGE_EXTENSIONS = {'bmp', 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'webp'}

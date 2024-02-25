@@ -3,7 +3,9 @@
 python fid_is_score.py --mode FID path/to/dataset1 path/to/dataset2
 '''
 
-To run the evaluation on GPU, use the flag `--device cuda:N`, where `N` is the index of the GPU to use.
+To run the evaluation on GPU, use the flag `--gpu N`, where `N` is the index of the GPU to use.
+
+for example to use GPU 0, use `--gpu 0`
 
 ### Using different layers for feature maps
 
