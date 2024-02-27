@@ -18,7 +18,14 @@ from scipy.ndimage import maximum_filter
 from simple_lama_inpainting import SimpleLama
 from PIL import Image
 import glob
+from rembg import remove
+from skimage.transform import resize
+from skimage.filters import gaussian
+import blending
+import math
 SAM_MODEL = None
+
+
 
 
 def initialize_models(config, ckpt, device="cuda"):
@@ -110,6 +117,7 @@ def read_exp(d_path):
     transformed_image_path = save_folder + "transformed_image.png"
     result_path = save_folder + "result.png"
     transformed_mask_path = save_folder + "ours/transformed_mask_square.png"
+    inpainted_background_path = save_folder + "lama_result/image.png"
     
     all_paths = [img_path, depth_path, mask_path, bg_path, depth_vis_path, transform_path, transformed_image_path, result_path, im_shape, transformed_mask_path]
     
@@ -128,6 +136,13 @@ def read_exp(d_path):
             out_dict[key_name + "_" + f_type] = None
     if out_dict["image_shape_npy"] is None:
         out_dict["image_shape_npy"] = np.array([512, 512])
+
+    if file_exists(inpainted_background_path):
+        print("reading inpainted background from :", inpainted_background_path)
+        out_dict["inpainted_background"] = read_image(inpainted_background_path)
+    else:
+        out_dict["inpainted_background"] = None
+
     out_dict["path_name"] = d_path
     return out_dict
 
@@ -315,7 +330,7 @@ def transformation_matrix_to_spherical_2(transform_mat, depth, mask):
 
     r = transform_mat[:3, :3]
     print(r)
-    if np.linalg.det(r) != 1:
+    if np.linalg.det(r) < 0:
         return None, None, None
     rt = transform_mat[:3, -1]
     # print(r)
@@ -381,7 +396,7 @@ def transformation_matrix_to_spherical_2(transform_mat, depth, mask):
                 # print(rt[None].shape)
                 xr, yr, zr = cartesian_to_spherical(rt[None, :])
 
-                return xr - x, yr - y, (zr - z) * 6
+                return xr - x, yr - y, (zr - z)
 
 
     
@@ -517,6 +532,19 @@ def get_mask_from_output(im):
     return mask
 
 
+def get_mask_from_output_2(im):
+
+    im_out = Image.fromarray(im)
+
+    # print(im_out.size)
+    mask = remove(im_out)
+    mask = np.array(mask)
+    mask = mask[..., -1] / 255.0
+    # print(mask.shape, mask.max(), mask.min())
+    # exit()
+    # print(size)
+    return mask
+
 def remove_noise_from_mask(mask):
 
     if mask.max() <= 1.0:
@@ -568,9 +596,43 @@ def resize_image(image, aspect_ratio):
     return img
 
 
-def get_blend_image_and_inpainting_mask(im, mask, im2, mask2, center):
+def laplacian_blend_images(im1, im2, mask):
+
+    # Automatically figure out the size
+    min_size = min(im1.shape)
+    depth = int(math.floor(math.log(min_size, 2))) - 4 # at least 16x16 at the highest level.
+
+    gauss_pyr_mask = blending.gaussPyramid(mask, depth)
+    gauss_pyr_im1 = blending.gaussPyramid(im1, depth)
+    gauss_pyr_im2 = blending.gaussPyramid(im2, depth)
+
+
+    lapl_pyr_im1  = blending.laplPyramid(gauss_pyr_im1)
+    lapl_pyr_im2 = blending.laplPyramid(gauss_pyr_im2)
+
+    outpyr = blending.blend(lapl_pyr_im2, lapl_pyr_im1, gauss_pyr_mask)
+    outimg = blending.collapse(outpyr)
+
+    outimg = np.clip(outimg, 0, 1) * 255.0
+
+    # outimg[outimg < 0] = 0 # blending sometimes results in slightly out of bound numbers.
+    # outimg[outimg > 255] = 255
+    outimg = outimg.astype(np.uint8)
+
+    return outimg
+    # return lapl_pyr_im1, lapl_pyr_im2, gauss_pyr_im1, gauss_pyr_im2, \
+        # gauss_pyr_mask, outpyr, outimg
+    # return
+
+
+def get_blend_image_and_inpainting_mask(im, mask, im2, mask2, center, inpainted_background = None):
     h, w, _ = im.shape
     h_in, w_in, _ = im2.shape
+
+    inpainted_background_blend = None
+
+    
+
 
     # print(im.shape, im2.shape)
     im2_center = (h_in // 2, w_in // 2)
@@ -615,18 +677,36 @@ def get_blend_image_and_inpainting_mask(im, mask, im2, mask2, center):
 
     # print(h_top, h_bottom, w_left, w_right)
 
-    im[h_top:h_bottom, w_left:w_right] = paste_im * mask_paste_im[..., None] + (1.0 - mask_paste_im[..., None]) * im[h_top:h_bottom, w_left:w_right]
+    im_obj = np.zeros_like(im)
+    im_obj[h_top:h_bottom, w_left:w_right] = paste_im * mask_paste_im[..., None]
 
+
+
+    mask_alpha = np.zeros_like(im)[..., 0]
+    mask_alpha[h_top:h_bottom, w_left:w_right] = mask_paste_im
+    print(im_obj.shape, im.shape)
+    print("Running blending")
+    im_blend = laplacian_blend_images(im / 255.0, im_obj / 255.0, mask_alpha)
+
+    if inpainted_background is not None:
+        inpainted_background_blend = cv2.resize(inpainted_background[..., :3], (int(im.shape[1]),int(im.shape[0])))
+
+        inpainted_background_blend = laplacian_blend_images(inpainted_background_blend / 255.0, im_obj / 255.0, mask_alpha)
+
+    # im[h_top:h_bottom, w_left:w_right] = paste_im * mask_paste_im[..., None] + (1.0 - mask_paste_im[..., None]) * im[h_top:h_bottom, w_left:w_right]
+    im = im_blend
     
-    mask[h_top:h_bottom, w_left:w_right][mask_paste_im > 0.5] = 1.0
-    mask = maximum_filter(mask, 15)
+    # mask[h_top:h_bottom, w_left:w_right][mask_paste_im > 0.5] = 1.0
+    mask = maximum_filter(mask, 25)
     mask[h_top:h_bottom, w_left:w_right][mask_paste_im > 0.5] = 0.0
 
 
-    return im, mask
+    return im, mask, inpainted_background_blend
 
 
 def run_and_save_zero123_single(exp_folder, model):
+    os.environ["OMP_NUM_THREADS"] = "1"
+
     # continue
     exp_folder = complete_path(exp_folder)
     exp_dict = read_exp(exp_folder)
@@ -655,8 +735,8 @@ def run_and_save_zero123_single(exp_folder, model):
         # continue
 
     # exit()
-
-    im_out_gen = run_zero123(model, im_out, x=-x, y=y, z=-z)
+    # Matching the frame of pytorch3d?
+    im_out_gen = run_zero123(model, im_out, x=-x, y=y, z=-5*z)
     im_out_gen = np.array(im_out_gen[0])
     mask_out = get_mask_from_output(im_out_gen)
 
@@ -668,7 +748,11 @@ def run_and_save_zero123_single(exp_folder, model):
     m_obj = cv2.resize(m_obj, (int(new_w),int(new_h)))
 
 
-    im_blended, inpainting_mask = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center)
+    inpainted_background = exp_dict["inpainted_background"]
+# /
+    # print(inpainted_background)
+
+    im_blended, inpainting_mask, im_blended_2 = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center, inpainted_background = inpainted_background)
 
     out_path_dir = exp_folder + "zero123/"
     os.makedirs(out_path_dir, exist_ok = True)
@@ -680,6 +764,9 @@ def run_and_save_zero123_single(exp_folder, model):
     plt.imsave(out_path_dir + "out_gen.png", im_obj)
     plt.imsave(out_path_dir + "out_gen_mask.png", m_obj, cmap="gray")
 
+    if im_blended_2 is not None:
+        plt.imsave(out_path_dir + "lama_followed_by_zero123_result.png", resize_image(im_blended_2, im_size))
+        
 
 def generate_zero_123_results(exp_root_folder, model):
 
@@ -706,12 +793,14 @@ def generate_zero_123_results(exp_root_folder, model):
 
 if __name__ == "__main__":
 
-    ckpt='105000.ckpt'
+    # ckpt='105000.ckpt'
+    ckpt='zero123-xl.ckpt'
     config='configs/sd-objaverse-finetune-c_concat-256.yaml'
     config = OmegaConf.load(config)
     model = initialize_models(config, ckpt)
 
-    exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/"
+    # exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/"
+    exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/rotation_2/"
     generate_zero_123_results(exp_root_folder, model)
     # exit()
 

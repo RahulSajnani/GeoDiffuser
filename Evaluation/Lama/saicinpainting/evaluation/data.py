@@ -120,8 +120,8 @@ class GeodiffInpaintingDataset(Dataset):
         image = load_image(self.img_filenames[i], mode='RGB')
         mask = load_image(self.mask_filenames[i], mode='L')
         if self.dilate_mask:
-            print("[INFO]: Dilating mask")
-            mask = maximum_filter(mask, 5)
+            print("[INFO]: Dilating mask by 35")
+            mask = maximum_filter(mask, 35)
 
         result = dict(image=image, mask=mask[None, ...])
 
