@@ -239,7 +239,7 @@ def get_translation(transform_mat, mask):
 
 
     w_obj_location = np.mean(w[mask > 0.5])
-    h_obj_location = np.mean(h[mask > 0.5])
+    h_obj_location = np.max(h[mask > 0.5])
 
     x = float(w_obj_location / mask.shape[1])
     y = 1.0 - float(h_obj_location / mask.shape[0])
@@ -422,6 +422,12 @@ def write_string_to_file(f_path, text):
     f.write(text)
     f.close()
 
+def read_file(f_path):
+    category = None
+    with open(f_path) as f:
+        category = f.read()
+
+    return category
 
 def list_exp_details(exp_dict):
 
@@ -465,10 +471,18 @@ def evaluate_geodiff(exp_root_folder, weights_folder):
         task, params = get_task_from_transform(transform_mat, transformed_mask)
         # continue
         # get category
-        category = get_object_category(im, im_mask, d_model, image_processor)
+        out_path_dir = exp_folder + "object_edit/"
+        
+        if file_exists(out_path_dir + "category_corrected.txt"):
+            category = read_file(out_path_dir + "category_corrected.txt")
+        else:
+            # continue
+            category = get_object_category(im, im_mask, d_model, image_processor)
 
 
         print(task, params)
+
+
         print("detected category: ", category)
         if category is None:
             continue
@@ -490,7 +504,7 @@ def evaluate_geodiff(exp_root_folder, weights_folder):
         elif task != "nothing":
             ckpt = weights_folder + task + ".ckpt"
             if task == "rotate":
-                input_im, output_ims = edit(im, task, category, ckpt, a = params)
+                input_im, output_ims = edit(im, task, category, ckpt, rotation_angle=params)
             else:
                 input_im, output_ims = edit(im, task, category, ckpt, x = params[0], y = params[1])
 
@@ -505,13 +519,24 @@ def evaluate_geodiff(exp_root_folder, weights_folder):
         out_path_dir = exp_folder + "object_edit/"
         os.makedirs(out_path_dir, exist_ok = True)
         
+        plt.imsave(out_path_dir + "result_object_edit..png", resize_image(np.array(gen_output), im_size))
 
         write_string_to_file(out_path_dir + "category.txt", category)
         write_string_to_file(out_path_dir + "task.txt", task)
         if params is not None:
-            np.save(out_path_dir + "params.npy", np.array(params))
 
-        plt.imsave(out_path_dir + "result_object_edit..png", resize_image(np.array(gen_output), im_size))
+            if type(params).__name__ != "tuple":
+                params = (params,)
+
+            params = np.array(params)
+            np.save(out_path_dir + "params.npy", params)
+            params_txt = ""
+            
+            for n in params:
+                params_txt = params_txt + str(n) + " "
+            write_string_to_file(out_path_dir + "params.txt", params_txt)
+
+
 
         # if num_k == 2:
         #     exit()
@@ -523,7 +548,7 @@ def evaluate_geodiff(exp_root_folder, weights_folder):
 
 if __name__ == "__main__":
 
-    exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/"
+    exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/rotation_2/"
     weights_folder = "../../../weights/object-edit/"
     evaluate_geodiff(exp_root_folder, weights_folder)
     exit()
