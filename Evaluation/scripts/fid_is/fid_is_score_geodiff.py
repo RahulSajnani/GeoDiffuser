@@ -44,6 +44,76 @@ from PIL import Image, JpegImagePlugin
 from scipy import linalg
 from torch.nn.functional import adaptive_avg_pool2d
 from torchvision.transforms import CenterCrop, Compose, Resize, ToTensor
+import glob
+
+
+def create_folder(directory):
+    os.makedirs(directory, exist_ok = True)
+
+def complete_path(directory):
+    return os.path.join(directory, "")
+
+
+def get_exp_types():
+    
+    exp_types = ["Removal", "Rotation_3D", "Rotation_2D", "Translation_3D", "Scaling", "Mix", "Translation_2D"]
+
+    return exp_types
+
+def check_if_exp_root(exp_root_folder, folder_list = None):
+
+    if folder_list is None:    
+        folder_list = glob.glob(complete_path(exp_root_folder) + "**/")
+    
+    exp_types = get_exp_types()
+
+
+    for f in folder_list:
+        # print(f.split("/"))
+        if f.split("/")[-2] in exp_types:
+            return True
+
+    return False
+
+def read_exp(d_path):
+    save_folder = complete_path(d_path)
+
+
+    img_path = save_folder + "input_image.png"
+    depth_path = save_folder + "depth.npy"
+    mask_path = save_folder + "input_mask.png"
+    bg_path = save_folder + "background_image.png"
+    depth_vis_path = save_folder + "depth.png"
+    transform_path = save_folder + "transform.npy"
+    im_shape = save_folder + "image_shape.npy"
+    
+    transformed_image_path = save_folder + "transformed_image.png"
+    result_path = save_folder + "result.png"
+    result_ls_path = save_folder + "resized_result_ls.png"
+    zero123_result_path = save_folder + "zero123/lama_followed_by_zero123_result.png"
+    object_edit_result_path = save_folder + "object_edit/result_object_edit.png"
+    resized_input_image = save_folder + "resized_input_image_png.png"
+    resized_input_mask = save_folder + "resized_input_mask_png.png"
+    
+    all_paths = [img_path, depth_path, mask_path, bg_path, depth_vis_path, transform_path, transformed_image_path, result_path, im_shape, result_ls_path, zero123_result_path, resized_input_image, object_edit_result_path, resized_input_mask]
+    
+    out_dict = {}
+    for f_name in all_paths:
+        base_name = os.path.basename(f_name)
+        key_name = base_name.split(".")[0]
+        f_type = base_name.split(".")[1]
+        
+        if file_exists(f_name):
+            if f_type == "png":
+                out_dict[key_name + "_png"] = read_image(f_name)
+            elif f_type == "npy":
+                out_dict[key_name + "_npy"] = np.load(f_name)
+        else:
+            out_dict[key_name + "_" + f_type] = None
+    if out_dict["image_shape_npy"] is None:
+        out_dict["image_shape_npy"] = np.array([512, 512])
+    out_dict["path_name"] = d_path
+    return out_dict
 
 try:
     from tqdm import tqdm
@@ -59,7 +129,7 @@ except ModuleNotFoundError:
 # path[0] generated images, path[1] real images
 
 parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
-parser.add_argument('path', type=str, nargs=2,
+parser.add_argument('path', type=str, nargs=1,
                     help=('Path to the generated images or '
                           'to .npz statistic files'))
 parser.add_argument('--batch-size', type=int, default=50,
@@ -72,6 +142,7 @@ parser.add_argument('-c', '--gpu', default='', type=str,
                     help='GPU to use for example --gpu 0 (leave blank for CPU only)')
 parser.add_argument('--resize', default=256)
 parser.add_argument('--mode', default='FID', help='set to FID or IS to calculate scores')
+parser.add_argument("--method_type", default="ours", help="method type")
 
 transform = Compose([Resize(256), CenterCrop(256), ToTensor()])
 IMAGE_EXTENSIONS = {'bmp', 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'webp'}
@@ -133,6 +204,10 @@ def get_activations(files, model, batch_size=50, dims=2048,
 
         if isinstance(files[0], pathlib.PosixPath):
             images = [t(Image.open(str(f))) for f in files[start:end]]
+
+        elif isinstance(files[0], str):
+            images = [t(Image.open(f)) for f in files[start:end]]
+
 
         elif isinstance(files[0], Image.Image):
             images = [t(f) for f in files[start:end]]
@@ -259,14 +334,45 @@ def calculate_activation_statistics(files, model, batch_size=50,
     return mu, sigma
 
 
-def _compute_statistics_of_path(path, model, batch_size, dims, cuda):
+def _compute_statistics_of_path(path, model, batch_size, dims, cuda, edit_method):
     if path.endswith('.npz'):
         f = np.load(path)
         m, s = f['mu'][:], f['sigma'][:]
         f.close()
     else:
-        path = pathlib.Path(path)
-        files = list(path.glob('*.jpg')) + list(path.glob('*.png'))
+        # path = pathlib.Path(path)
+        # files = list(path.glob('*.jpg')) + list(path.glob('*.png'))
+
+        path = complete_path(path)
+
+        if edit_method == "input":
+            path_relative_to_root = "resized_input_image_png.png"
+        elif edit_method == "ours":
+            path_relative_to_root = "resized_result_ls.png"
+        elif edit_method == "zero123":
+            path_relative_to_root = "zero123/lama_followed_by_zero123_result.png"
+        elif edit_method == "object_edit":
+            path_relative_to_root = "object_edit/result_object_edit.png"
+
+
+        if check_if_exp_root(path):
+            exp_types = get_exp_types()
+            files = []
+            for exp in exp_types:
+                if exp == "Rotation_2D" or exp == "Scaling" or exp == "Mix" or exp == "Removal":
+                    continue
+
+                exp_p = complete_path(path + exp)
+                if os.path.exists(exp_p):
+                    f_d = glob.glob(exp_p + "**/" + path_relative_to_root)
+                    print(exp_p, " ", len(f_d))
+                    files.extend(f_d)
+        else:
+            files = glob.glob(path + "**/" + path_relative_to_root)
+
+        # print(files)
+        print(len(files))
+        # exit()
         m, s = calculate_activation_statistics(files, model, batch_size,
                                                dims, cuda)
 
@@ -284,7 +390,7 @@ def _compute_statistics_of_images(images, model, batch_size, dims, cuda, keep_si
         raise ValueError
 
 
-def calculate_fid_given_paths(paths, batch_size, cuda, dims):
+def calculate_fid_given_paths(paths, batch_size, cuda, dims, edit_method="ours"):
     """Calculates the FID of two paths"""
     for p in paths:
         if not os.path.exists(p):
@@ -297,9 +403,9 @@ def calculate_fid_given_paths(paths, batch_size, cuda, dims):
         model.cuda()
 
     m1, s1 = _compute_statistics_of_path(paths[0], model, batch_size,
-                                         dims, cuda)
-    m2, s2 = _compute_statistics_of_path(paths[1], model, batch_size,
-                                         dims, cuda)
+                                         dims, cuda, "input")
+    m2, s2 = _compute_statistics_of_path(paths[0], model, batch_size,
+                                         dims, cuda, edit_method)
     fid_value = calculate_frechet_distance(m1, s1, m2, s2)
 
     return fid_value
@@ -366,7 +472,8 @@ if __name__ == '__main__':
         fid_value = calculate_fid_given_paths(args.path,
                                               args.batch_size,
                                               args.gpu != '',
-                                              args.dims)
+                                              args.dims,
+                                              args.method_type)
         print('FID: ', fid_value)
     elif args.mode == "IS":
         mean_is, std_is = calculate_is_given_paths(args.path,

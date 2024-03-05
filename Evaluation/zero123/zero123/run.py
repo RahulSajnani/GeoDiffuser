@@ -23,6 +23,7 @@ from skimage.transform import resize
 from skimage.filters import gaussian
 import blending
 import math
+import argparse
 SAM_MODEL = None
 
 
@@ -565,6 +566,9 @@ def get_mask_bounding_box(mask):
     mask = remove_noise_from_mask(mask)
     h_ind, w_ind = np.indices(mask.shape)
 
+    if np.sum(mask) == 0:
+        return 0, 1, 0, 1
+
     h_min, h_max = h_ind[mask > 0.5].min(), h_ind[mask > 0.5].max()
     w_min, w_max = w_ind[mask > 0.5].min(), w_ind[mask > 0.5].max()
 
@@ -738,7 +742,12 @@ def run_and_save_zero123_single(exp_folder, model):
     # Matching the frame of pytorch3d?
     im_out_gen = run_zero123(model, im_out, x=-x, y=y, z=-5*z)
     im_out_gen = np.array(im_out_gen[0])
+
     mask_out = get_mask_from_output(im_out_gen)
+
+    if np.sum(mask_out) == 0:
+        mask_out = get_mask_from_output_2(im_out_gen)
+
 
     im_obj, m_obj = crop_image(im_out_gen, mask_out)
 
@@ -793,6 +802,11 @@ def generate_zero_123_results(exp_root_folder, model):
 
 if __name__ == "__main__":
 
+
+    parser = argparse.ArgumentParser(description="Read a directory path from the command line.")
+    parser.add_argument('--path', help="Specify the directory path")
+    args = parser.parse_args()
+
     # ckpt='105000.ckpt'
     ckpt='zero123-xl.ckpt'
     config='configs/sd-objaverse-finetune-c_concat-256.yaml'
@@ -800,7 +814,8 @@ if __name__ == "__main__":
     model = initialize_models(config, ckpt)
 
     # exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/"
-    exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/rotation_2/"
+    # exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/rotation_2/"
+    exp_root_folder = args.path
     generate_zero_123_results(exp_root_folder, model)
     # exit()
 

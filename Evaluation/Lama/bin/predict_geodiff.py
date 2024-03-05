@@ -72,10 +72,10 @@ def main(predict_config: OmegaConf):
             # print(mask_fname)
 
             exp_dir = os.path.dirname(mask_fname)
-            cur_out_fname = os.path.join(
-                predict_config.outdir, 
-                os.path.splitext(mask_fname[len(predict_config.indir):])[0] + out_ext
-            )
+            # cur_out_fname = os.path.join(
+            #     predict_config.outdir, 
+            #     os.path.splitext(mask_fname[len(predict_config.indir):])[0] + out_ext
+            # )
             cur_out_dir = complete_path(exp_dir) + "lama_result/"
             os.makedirs(cur_out_dir, exist_ok = True)
             cur_out_fname = cur_out_dir + "image.png"

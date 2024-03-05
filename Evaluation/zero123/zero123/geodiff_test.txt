@@ -1,5 +1,10 @@
+# Make sure you generate transformed masks first!!!!!!!!!!!!!!!!!
+python3 ui_utils.py --path ./ui_outputs/large_scale_study/
+
+
+
 First run zero123 to edit (Make sure you change path in the file)
-python3 run.py
+python3 run.py --path <dir_path>
 
 
 Run lama to inpaint
