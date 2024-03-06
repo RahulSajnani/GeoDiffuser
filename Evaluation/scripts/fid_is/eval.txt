@@ -1,0 +1,1 @@
+python3 -m fid_is.fid_is_score_geodiff --method_type "dragon_diffusion" --gpu 0 --mode "FID" ../../../../test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics_2/Translation_2D/

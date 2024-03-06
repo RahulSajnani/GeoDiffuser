@@ -94,8 +94,10 @@ def read_exp(d_path):
     object_edit_result_path = save_folder + "object_edit/result_object_edit.png"
     resized_input_image = save_folder + "resized_input_image_png.png"
     resized_input_mask = save_folder + "resized_input_mask_png.png"
+    dragon_diffusion_result_path = save_folder + "dragon_diffusion/result_dragon_diffusion.png"
+
     
-    all_paths = [img_path, depth_path, mask_path, bg_path, depth_vis_path, transform_path, transformed_image_path, result_path, im_shape, result_ls_path, zero123_result_path, resized_input_image, object_edit_result_path, resized_input_mask]
+    all_paths = [img_path, depth_path, mask_path, bg_path, depth_vis_path, transform_path, transformed_image_path, result_path, im_shape, result_ls_path, zero123_result_path, resized_input_image, object_edit_result_path, resized_input_mask, dragon_diffusion_result_path]
     
     out_dict = {}
     for f_name in all_paths:
@@ -353,6 +355,8 @@ def _compute_statistics_of_path(path, model, batch_size, dims, cuda, edit_method
             path_relative_to_root = "zero123/lama_followed_by_zero123_result.png"
         elif edit_method == "object_edit":
             path_relative_to_root = "object_edit/result_object_edit.png"
+        elif edit_method == "dragon_diffusion":
+            path_relative_to_root = "dragon_diffusion/result_dragon_diffusion.png"
 
 
         if check_if_exp_root(path):
