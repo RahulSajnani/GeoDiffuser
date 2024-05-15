@@ -1,6 +1,7 @@
 # The diffusion-based implementation of FreeDrag is based on DragDiffusion(https://arxiv.org/abs/2306.14435)
 
 import os
+os.environ['HF_HOME'] = "/oscar/scratch/rsajnani/rsajnani/research/.cache/hf"
 import gradio as gr
 
 from utils.ui_utils import get_points, undo_points
@@ -32,6 +33,7 @@ with gr.Blocks() as demo:
                 input_image = gr.Image(type="numpy", label="Click Points",
                     show_label=True, height=LENGTH, width=LENGTH) # for points clicking
                 undo_button = gr.Button("Undo point")
+        with gr.Row():
             with gr.Column():
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Editing Results</p>""")
                 output_image = gr.Image(type="numpy", label="Editing Results",
@@ -69,18 +71,18 @@ with gr.Blocks() as demo:
         with gr.Tab("Base Model Config"):
             with gr.Row():
                 local_models_dir = '/mnt/petrelfs/lingpengyang/DragDiffusion/local_pretrained_models'
-                local_models_choice = \
-                    [os.path.join(local_models_dir,d) for d in os.listdir(local_models_dir) if os.path.isdir(os.path.join(local_models_dir,d))]
+                # local_models_choice = \
+                    # [os.path.join(local_models_dir,d) for d in os.listdir(local_models_dir) if os.path.isdir(os.path.join(local_models_dir,d))]
                 model_path = gr.Dropdown(value="runwayml/stable-diffusion-v1-5",
                     label="Diffusion Model Path",
                     choices=[
                         "runwayml/stable-diffusion-v1-5",
-                    ] + local_models_choice
+                    ] #+ local_models_choice
                 )
                 vae_path = gr.Dropdown(value="default",
                     label="VAE choice",
                     choices=["default",
-                    "stabilityai/sd-vae-ft-mse"] + local_models_choice
+                    "stabilityai/sd-vae-ft-mse"] #+ local_models_choice
                 )
 
         with gr.Tab("LoRA Parameters"):
@@ -123,8 +125,8 @@ with gr.Blocks() as demo:
         with gr.Tab("Generation Config"):
             with gr.Row():
                 local_models_dir = '/mnt/petrelfs/lingpengyang/DragDiffusion/local_pretrained_models'
-                local_models_choice = \
-                    [os.path.join(local_models_dir,d) for d in os.listdir(local_models_dir) if os.path.isdir(os.path.join(local_models_dir,d))]
+                # local_models_choice = \
+                    # [os.path.join(local_models_dir,d) for d in os.listdir(local_models_dir) if os.path.isdir(os.path.join(local_models_dir,d))]
                 model_path_gen = gr.Dropdown(value="runwayml/stable-diffusion-v1-5",
                     label="Diffusion Model Path",
                     choices=[
@@ -134,12 +136,12 @@ with gr.Blocks() as demo:
                         "SG161222/Realistic_Vision_V2.0",
                         "stablediffusionapi/interiordesignsuperm",
                         "stablediffusionapi/dvarch",
-                    ] + local_models_choice
+                    ] #+ local_models_choice
                 )
                 vae_path_gen = gr.Dropdown(value="default",
                     label="VAE choice",
                     choices=["default",
-                    "stabilityai/sd-vae-ft-mse"] + local_models_choice
+                    "stabilityai/sd-vae-ft-mse"] #+ local_models_choice
                 )
                 lora_path_gen = gr.Textbox(value="", label="LoRA path")
                 gen_seed = gr.Number(value=65536, label="Generation Seed", precision=0)
