@@ -231,7 +231,13 @@ def train_lora(image,
         ]
     )
 
+    print("Training LoRa")
+    tr_st = 0
     for step in progress.tqdm(range(lora_step), desc="training LoRA"):
+        print(tr_st, " ", lora_step)
+        print(range(lora_step))
+        tr_st += 1
+        
         unet.train()
         image_batch = []
         for _ in range(lora_batch_size):
@@ -288,7 +294,8 @@ def train_lora(image,
                 text_encoder_lora_layers=None,
             )
             # unet = unet.to(torch.float16)
-
+        if tr_st > lora_step:
+            break
     # save the trained lora
     # unet = unet.to(torch.float32)
     # unwrap_model is used to remove all special modules added when doing distributed training

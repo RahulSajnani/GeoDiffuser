@@ -317,6 +317,7 @@ def get_points_geodiff(img,
 
     # draw points
     points = []
+    all_points = []
 
     for idx, point in enumerate(sel_pix):
         cv2.circle(img, tuple(point), 10, (255, 0, 0), -1)
@@ -330,8 +331,16 @@ def get_points_geodiff(img,
         #     cv2.circle(img, tuple(point), 10, (0, 0, 255), -1)
         points.append(tuple(point))
         points.append(tuple(target_pts[idx]))
+
+        all_points.append(tuple(point))
+        all_points.append(tuple(target_pts[idx]))
         # draw an arrow from handle point to target point
         if len(points) == 2:
             cv2.arrowedLine(img, points[0], points[1], (255, 255, 255), 4, tipLength=0.5)
             points = []
-    return img if isinstance(img, np.ndarray) else np.array(img)
+
+    if not isinstance(img, np.ndarray):
+        img = np.array(img)
+
+    return img, np.array(all_points)
+    # return img if isinstance(img, np.ndarray) else np.array(img)
