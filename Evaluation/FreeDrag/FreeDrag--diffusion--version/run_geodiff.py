@@ -34,7 +34,7 @@ def get_editing_mask(source_pts, target_pts, im_size):
 
     return m 
 
-def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5", vae_path = "default", lora_path = "./lora_tmp", lora_step = 200, lora_lr = 0.0002, lora_batch_size = 4, lora_rank = 16, max_step = 300, lam = 10, l_expected = 1, d_max = 5, inversion_strength = 0.7, latent_lr = 0.01, start_step = 0, start_layer = 10):
+def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5", vae_path = "default", lora_path = "./lora_tmp", lora_step = 200, lora_lr = 0.0002, lora_batch_size = 4, lora_rank = 16, max_step = 1000, lam = 10, l_expected = 1, d_max = 5, inversion_strength = 0.7, latent_lr = 0.01, start_step = 0, start_layer = 10):
 
     exp_dict = read_exp(exp_folder)
     image = exp_dict["input_image_png"]
@@ -75,6 +75,7 @@ def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5
     input_drag_img, selected_points = get_points_geodiff(masked_image, source_pts[idx_array].astype(int), target_pts[idx_array].astype(int))
 
     plt.imsave(d_path + "input_free_drag.png", input_drag_img)
+    plt.imsave(d_path + "input_free_drag_resized.png", resize_image(input_drag_img, exp_dict["image_shape_npy"]))
 
 
     prompt = exp_dict["prompt_txt"]
@@ -121,11 +122,12 @@ def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5
     # output_image[0] = resize_image(output_image[0], exp_dict["image_shape_npy"])
     # print(output_image[0].shape)
     plt.imsave(d_path + "result_free_drag.png", output_image)
+    plt.imsave(d_path + "result_free_drag_resized.png", resize_image(output_image, exp_dict["image_shape_npy"]))
     # plt.imsave("./test.png", output_image[0])
     # exit()
     pass
 
-def run_freedrag_geodiff(exp_root_folder, dragon_diff_model):
+def run_freedrag_geodiff(exp_root_folder, model_path = "runwayml/stable-diffusion-v1-5", vae_path = "default", lora_path = "./lora_tmp", lora_step = 200, lora_lr = 0.0002, lora_batch_size = 4, lora_rank = 16, max_step = 1000, lam = 10, l_expected = 1, d_max = 5, inversion_strength = 0.7, latent_lr = 0.01, start_step = 0, start_layer = 10):
 
     folder_list = glob.glob(complete_path(exp_root_folder) + "**/")
     folder_list.sort()
@@ -143,12 +145,12 @@ def run_freedrag_geodiff(exp_root_folder, dragon_diff_model):
                 continue
 
             for exp_folder in folder_list:
-                run_freedrag_single(exp_folder, dragon_diff_model)
+                run_freedrag_single(exp_folder, model_path, vae_path, lora_path, lora_step, lora_lr, lora_batch_size, lora_rank, max_step, lam, l_expected, d_max, inversion_strength, latent_lr, start_step, start_layer)
     
             # exit()
     else:
         for exp_folder in folder_list:
-            run_freedrag_single(exp_folder, dragon_diff_model)
+            run_freedrag_single(exp_folder, model_path, vae_path, lora_path, lora_step, lora_lr, lora_batch_size, lora_rank, max_step, lam, l_expected, d_max, inversion_strength, latent_lr, start_step, start_layer )
 
 
 
@@ -163,7 +165,7 @@ if __name__ == "__main__":
         required=False, default = None)
     args = parser.parse_args()
 
-    # run_freedrag_geodiff(args.exp_root, dragon_diff_model)
-    run_freedrag_single(args.exp_root)
+    run_freedrag_geodiff(args.exp_root)
+    # run_freedrag_single(args.exp_root)
 
     pass

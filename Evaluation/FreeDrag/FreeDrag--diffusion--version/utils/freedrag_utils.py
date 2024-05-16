@@ -192,6 +192,8 @@ def freedrag_update(model,
             # if step_idx > args.n_pix_step or step_idx>step_threshold+10:
             #     break
 
+            print(step_ids, " ", args.max_step)
+
             if step_idx > args.max_step:
                 break
             
