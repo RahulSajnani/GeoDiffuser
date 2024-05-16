@@ -67,13 +67,22 @@ def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5
 
     mask_updated = get_editing_mask(source_pts, target_pts, im_size)
 
+    # Creating kernel 
+    kernel = np.ones((20, 20), mask_updated.dtype) 
+    
+    # Using cv2.erode() method  
+    mask_updated = cv2.dilate(mask_updated, kernel)  
+
+    mask_updated[mask_updated >= 255 / 2] = 255
+    mask_updated[mask_updated < 255 / 2] = 0
+
     img = {"image": image, "mask": mask_updated}
     _, _, masked_image, mask_final = store_img(img)
 
     
     # drag_pts = flow[mask_pts >= 0.5]
 
-    idx_array = np.random.choice(source_pts.shape[0] - 1, 10)
+    idx_array = np.random.choice(source_pts.shape[0] - 1, 20)
     input_drag_img, selected_points = get_points_geodiff(masked_image, source_pts[idx_array].astype(int), target_pts[idx_array].astype(int))
 
     print(selected_points)
@@ -81,7 +90,7 @@ def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5
 
     plt.imsave(d_path + "input_free_drag.png", input_drag_img)
     plt.imsave(d_path + "input_free_drag_resized.png", resize_image(input_drag_img, exp_dict["image_shape_npy"]))
-
+    # exit()
 
     prompt = exp_dict["prompt_txt"]
     if prompt is None:
@@ -183,7 +192,7 @@ if __name__ == "__main__":
         required=False, default = None)
     args = parser.parse_args()
 
-    # run_freedrag_geodiff(args.exp_root)
-    run_freedrag_single(args.exp_root)
+    run_freedrag_geodiff(args.exp_root)
+    # run_freedrag_single(args.exp_root)
 
     pass
