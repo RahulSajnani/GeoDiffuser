@@ -344,3 +344,14 @@ def get_points_geodiff(img,
 
     return img, np.array(all_points)
     # return img if isinstance(img, np.ndarray) else np.array(img)
+
+def draw_points(image, points):
+    img = image.copy()
+
+    for idx, point in enumerate(points):   
+        cv2.circle(img, tuple(point), 5, (0, 0, 255), -1)
+
+    if not isinstance(img, np.ndarray):
+        img = np.array(img)
+
+    return img

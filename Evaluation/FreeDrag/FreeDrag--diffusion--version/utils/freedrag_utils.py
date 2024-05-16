@@ -15,15 +15,18 @@ def get_features_plus(feature, position):
     y = position[:,0]
     x = position[:,1]
 
-    x0 = x.long()
-    x1 = x0+1
-    y0 = y.long()
-    y1 = y0+1
+    x0 = torch.clip(x.long(), min=0, max=feature.shape[-1] - 1)
+    x1 = torch.clip(x0+1, min=0, max=feature.shape[-1] - 1)
+    y0 = torch.clip(y.long(), min=0, max=feature.shape[-2] - 1)
+    y1 = torch.clip(y0+1, min=0, max=feature.shape[-2] - 1)
+
     
     wa = ((x1.float() - x) * (y1.float() - y)).to(device).unsqueeze(1).detach()
     wb = ((x1.float() - x) * (y - y0.float())).to(device).unsqueeze(1).detach()
     wc = ((x - x0.float()) * (y1.float() - y)).to(device).unsqueeze(1).detach()
     wd = ((x - x0.float()) * (y - y0.float())).to(device).unsqueeze(1).detach()
+    # print(x0, y0, x1, y1)
+    # exit()
 
     Ia = feature[:, :, y0, x0].squeeze(0).transpose(1,0)
     Ib = feature[:, :, y1, x0].squeeze(0).transpose(1,0)
@@ -192,7 +195,7 @@ def freedrag_update(model,
             # if step_idx > args.n_pix_step or step_idx>step_threshold+10:
             #     break
 
-            print(step_ids, " ", args.max_step)
+            print(step_idx, " ", args.max_step)
 
             if step_idx > args.max_step:
                 break
