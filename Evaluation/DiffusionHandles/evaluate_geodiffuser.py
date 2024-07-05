@@ -4,7 +4,7 @@ import glob
 import torch
 import scipy
 
-from test.utils import crop_and_resize, load_image, save_image, save_depth
+# from test.utils import crop_and_resize, load_image, save_image, save_depth
 from saicinpainting import LamaInpainter
 
 from zoedepth.models.builder import build_model
@@ -23,7 +23,70 @@ from diffhandles import DiffusionHandles
 # Thank you to the authors for the code!
 
 
+import torch
+import torchvision
+import imageio.v3 as imageio
+import imageio.plugins as imageio_plugins
 
+imageio_plugins.freeimage.download() # to load exr files
+
+def load_image(path: str) -> torch.Tensor:
+    # img = Image.open(path)
+    # img = img.convert('RGB')
+    # img = torchvision.transforms.functional.pil_to_tensor(img)
+
+    img = torch.from_numpy(imageio.imread(path))
+    if img.dim() == 2:
+        img = img[..., None]
+    img = img.to(dtype=torch.float32)
+    img = img.permute(2, 0, 1)
+    img = img / 255.0
+    return img
+
+def save_image(img: torch.Tensor, path: str):
+    # img = torchvision.transforms.functional.to_pil_image(img)
+    # img.save(path)
+
+    img = img.detach().cpu()
+    img = img * 255.0
+    img = img.permute(1, 2, 0)
+    img = img.to(dtype=torch.uint8)
+    if img.shape[-1] == 1:
+        img = img[..., 0]
+    imageio.imwrite(path, img.numpy())
+    
+def load_depth(path: str) -> torch.Tensor:
+    # depth = Image.open(path)
+    # depth = torchvision.transforms.functional.pil_to_tensor(depth)[None,...]
+
+    depth = torch.from_numpy(imageio.imread(path))
+    if depth.dim() == 2:
+        depth = depth[..., None]
+    depth = depth.to(dtype=torch.float32)
+    depth = depth.permute(2, 0, 1)
+    return depth
+
+def save_depth(depth: torch.Tensor, path: str):
+    # depth = torchvision.transforms.functional.to_pil_image(depth, mode='F')
+    # depth.save(path)
+
+    depth = depth.detach().cpu()
+    depth = depth.permute(1, 2, 0)
+    depth = depth.to(dtype=torch.float32)
+    depth = depth[..., 0]
+    imageio.imwrite(path, depth.numpy())
+
+def crop_and_resize(img: torch.Tensor, size: int) -> torch.Tensor:
+    if img.shape[-2] != img.shape[-1]:
+        img = torchvision.transforms.functional.center_crop(img, min(img.shape[-2], img.shape[-1]))
+    img = torchvision.transforms.functional.resize(img, size=(size, size), antialias=True)
+    return img
+
+
+
+DIFF_HANDLES_MODEL = None
+DEPTH_MODEL = None
+INPAINTING_MODEL = None
 
 def count_folders(directory):
     return len([name for name in os.listdir(directory) if os.path.isdir(os.path.join(directory, name))])
@@ -122,11 +185,16 @@ def remove_foreground(image, fg_mask, img_res=IMG_RES, dilation=10):
     """
     Both image and fg_mask in range [0-1]
     """
-
+    
+    global INPAINTING_MODEL
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    inpainter = LamaInpainter()
-    inpainter.to(device)
+    if INPAINTING_MODEL is None:
+        inpainter = LamaInpainter()
+        inpainter.to(device)
+        INPAINTING_MODEL = inpainter
+    else:
+        inpainter = INPAINTING_MODEL
 
     image = preprocess_image(image, img_res)
     # print(image.shape)
@@ -149,12 +217,18 @@ def remove_foreground(image, fg_mask, img_res=IMG_RES, dilation=10):
 
 def estimate_depth(image, img_res=IMG_RES):
 
+    global DEPTH_MODEL
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if DEPTH_MODEL is None:
 
-    conf = get_config("zoedepth_nk", "infer")
-    depth_estimator = build_model(conf)
-    depth_estimator.to(device)
+
+        conf = get_config("zoedepth_nk", "infer")
+        depth_estimator = build_model(conf)
+        depth_estimator.to(device)
+        DEPTH_MODEL = depth_estimator
+    else:
+        depth_estimator = DEPTH_MODEL
 
     image_d = preprocess_image(image)
 
@@ -166,15 +240,21 @@ def estimate_depth(image, img_res=IMG_RES):
 
 def load_diffhandles_model(config_path=None):
 
+    global DIFF_HANDLES_MODEL
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    diff_handles_config = OmegaConf.load(config_path) if config_path is not None else None
-    diff_handles = DiffusionHandles(conf=diff_handles_config)
-    diff_handles.to(device)
+
+    if DIFF_HANDLES_MODEL is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        diff_handles_config = OmegaConf.load(config_path) if config_path is not None else None
+        diff_handles = DiffusionHandles(conf=diff_handles_config)
+        diff_handles.to(device)
+        DIFF_HANDLES_MODEL = diff_handles
+    else:
+        diff_handles = DIFF_HANDLES_MODEL
 
     return diff_handles
 
-def latent_to_image(latent_image):
+def latent_to_image(latent_image, diff_handles):
 
     # save image reconstructed from inversion
     with torch.no_grad():
@@ -214,16 +294,16 @@ if __name__ == '__main__':
     fg_mask = preprocess_image(mask)
 
 
-    im_d = estimate_depth(image)[0].detach().cpu().numpy()
+    depth = estimate_depth(image)[None]
     # im_d = 1 / (im_d + 1e-8)
 
     # save_image((im_d/im_d.max())[0], exp_dir_dh + "im_disparity.png")
 
-    imageio.imwrite(exp_dir_dh + "im_disparity.png", (im_d/im_d.max() * 255.0).astype(np.uint8))
+    # imageio.imwrite(exp_dir_dh + "im_disparity.png", (im_d/im_d.max() * 255.0).astype(np.uint8))
     # exit()
-    depth = preprocess_image(exp_dict["depth_npy"][..., None])
-    depth = 1 / (depth + 1e-8)
-    bg_depth = diff_handles.set_foreground(depth=1/depth, fg_mask=fg_mask, bg_depth=1/(bg_depth[None] + 1e-8))
+    # depth = preprocess_image(exp_dict["depth_npy"][..., None])
+    # depth = 1 / (depth + 1e-2)
+    bg_depth = diff_handles.set_foreground(depth=depth, fg_mask=fg_mask, bg_depth=(bg_depth[None]))
 
     
     im_removed_depth_np = bg_depth[0, 0].detach().cpu().numpy()
@@ -231,7 +311,7 @@ if __name__ == '__main__':
     im_removed_depth_np_norm = im_removed_depth_np / (im_removed_depth_np.max() + 1e-6)
     imageio.imwrite(exp_dir_dh + "im_removed_depth.png", (im_removed_depth_np_norm * 255.0).astype(np.uint8))
 
-    bg_depth = 1 / (bg_depth + 1e-8)
+    # bg_depth = 1 / (bg_depth + 1e-2)
 
     prompt = "a car in a desert"
     img = preprocess_image(image)
@@ -241,14 +321,14 @@ if __name__ == '__main__':
                 depth=depth, prompt=prompt, null_text_emb=null_text_emb, init_noise=init_noise)
 
 
-    recon_image = latent_to_image(latent_image)
+    recon_image = latent_to_image(latent_image, diff_handles)
     save_image(recon_image.clamp(min=0, max=1)[0], exp_dir_dh + "recon.png")
     print("Saved Reconstruction Image for Check")
 
 
     rot_axis = [0.0, 1.0, 0.0]
     rot_angle = 0.0
-    translation = list(exp_dict["transform_npy"][:3, -1])
+    translation = list(exp_dict["transform_npy"][:3, -1] * 10.0)
 
     # get transformation parameters
     translation = torch.tensor(translation, dtype=torch.float32)
