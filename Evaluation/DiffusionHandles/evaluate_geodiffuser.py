@@ -13,6 +13,8 @@ from zoedepth.utils.config import get_config
 import matplotlib.pyplot as plt
 import numpy as np
 import imageio
+from diffhandles import DiffusionHandles
+
 
 # Borrowed and Edited from: 
 # 1. https://github.com/adobe-research/DiffusionHandles/blob/main/test/remove_foreground.py
@@ -115,7 +117,7 @@ def preprocess_image(image_in, img_res=IMG_RES):
     
     return image
 
-def remove_foreground(image, fg_mask, img_res=IMG_RES, dilation=3):
+def remove_foreground(image, fg_mask, img_res=IMG_RES, dilation=10):
 
     """
     Both image and fg_mask in range [0-1]
@@ -127,7 +129,7 @@ def remove_foreground(image, fg_mask, img_res=IMG_RES, dilation=3):
     inpainter.to(device)
 
     image = preprocess_image(image, img_res)
-    print(image.shape)
+    # print(image.shape)
 
     fg_mask = preprocess_image(fg_mask, img_res)
     
@@ -162,35 +164,94 @@ def estimate_depth(image, img_res=IMG_RES):
     return depth[0]
     
 
+def load_diffhandles_model(config_path=None):
 
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    diff_handles_config = OmegaConf.load(config_path) if config_path is not None else None
+    diff_handles = DiffusionHandles(conf=diff_handles_config)
+    diff_handles.to(device)
+
+    return diff_handles
+
+def latent_to_image(latent_image):
+
+    # save image reconstructed from inversion
+    with torch.no_grad():
+        latent_image = 1 / 0.18215 * latent_image.detach()
+        recon_image = diff_handles.diffuser.vae.decode(latent_image)['sample']
+        recon_image = (recon_image + 1) / 2
+
+    return recon_image
 
 if __name__ == '__main__':
 
-    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics/Translation_3D/1/"
+    
+    diff_handles = load_diffhandles_model()
+
+    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics/Translation_3D/14/"
 
 
     exp_dict = read_exp(exp_path)
+    # print(exp_dict.keys())
+    exp_dir_dh = exp_dict["path_name"] + "diffhandles/"
+    # print(exp_dir_dh)
+    os.makedirs(exp_dir_dh, exist_ok=True)
+    # exit()
     # print(exp_dict["depth_npy"].shape, exp_dict["depth_npy"].shape)
     # exit()
 
-    # print(exp_dict.keys())
 
     image = exp_dict["input_image_png"] / 255.0
     mask = exp_dict["input_mask_png"][..., :1] / 255.0
 
 
     im_removed = remove_foreground(image, mask)
-    print("im removed out:", im_removed.shape)
     im_removed_np = im_removed.permute(1, 2, 0).detach().cpu().numpy()
     im_removed_depth = estimate_depth(im_removed_np)
-    print(im_removed_depth.shape)
+    bg_depth = im_removed_depth
 
-    im_removed_depth_np = im_removed_depth[0].detach().cpu().numpy()
+    fg_mask = preprocess_image(mask)
 
 
-    im_removed_depth_np = im_removed_depth_np / (im_removed_depth_np.max() + 1e-6)
-    imageio.imwrite("./check/im.png", exp_dict["input_image_png"])
-    imageio.imwrite("./check/im_removed_depth.png", (im_removed_depth_np * 255.0).astype(np.uint8))
-    save_image(im_removed, "./check/im_removed.png")
-    save_depth(im_removed_depth, "./check/im_removed_depth.exr")
+    depth = preprocess_image(exp_dict["depth_npy"][..., None])
+    depth = 1 / (depth + 1e-8)
+    bg_depth = diff_handles.set_foreground(depth=1/depth, fg_mask=fg_mask, bg_depth=1/(bg_depth[None] + 1e-8))
 
+    
+    im_removed_depth_np = bg_depth[0, 0].detach().cpu().numpy()
+    np.save(exp_dir_dh + "bg_depth_diffhandles.npy", im_removed_depth_np)
+    im_removed_depth_np_norm = im_removed_depth_np / (im_removed_depth_np.max() + 1e-6)
+    imageio.imwrite(exp_dir_dh + "im_removed_depth.png", (im_removed_depth_np_norm * 255.0).astype(np.uint8))
+
+    bg_depth = 1 / (bg_depth + 1e-8)
+
+    prompt = "a dog"
+    img = preprocess_image(image)
+
+    null_text_emb, init_noise = diff_handles.invert_input_image(img, depth, prompt)
+    null_text_emb, init_noise, activations, latent_image = diff_handles.generate_input_image(
+                depth=depth, prompt=prompt, null_text_emb=null_text_emb, init_noise=init_noise)
+
+
+    recon_image = latent_to_image(latent_image)
+    save_image(recon_image.clamp(min=0, max=1)[0], exp_dir_dh + "recon.png")
+    print("Saved Reconstruction Image for Check")
+
+
+
+    # results = diff_handles.transform_foreground(
+    # depth=depth, prompt=prompt,
+    # fg_mask=fg_mask, bg_depth=bg_depth,
+    # null_text_emb=null_text_emb, init_noise=init_noise,
+    # activations=activations,
+    # rot_angle=rot_angle, rot_axis=rot_axis, translation=translation,
+    # use_input_depth_normalization=False)
+
+    exit()
+    
+    print(depth.shape, bg_depth.shape)
+    # exit()
+    
+    imageio.imwrite(exp_dir_dh + "im.png", exp_dict["input_image_png"])
+    save_image(im_removed, exp_dir_dh + "im_removed.png")
