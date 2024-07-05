@@ -189,7 +189,7 @@ if __name__ == '__main__':
     
     diff_handles = load_diffhandles_model()
 
-    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics/Translation_3D/14/"
+    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics/Translation_3D/8/"
 
 
     exp_dict = read_exp(exp_path)
@@ -214,6 +214,13 @@ if __name__ == '__main__':
     fg_mask = preprocess_image(mask)
 
 
+    im_d = estimate_depth(image)[0].detach().cpu().numpy()
+    # im_d = 1 / (im_d + 1e-8)
+
+    # save_image((im_d/im_d.max())[0], exp_dir_dh + "im_disparity.png")
+
+    imageio.imwrite(exp_dir_dh + "im_disparity.png", (im_d/im_d.max() * 255.0).astype(np.uint8))
+    # exit()
     depth = preprocess_image(exp_dict["depth_npy"][..., None])
     depth = 1 / (depth + 1e-8)
     bg_depth = diff_handles.set_foreground(depth=1/depth, fg_mask=fg_mask, bg_depth=1/(bg_depth[None] + 1e-8))
@@ -226,7 +233,7 @@ if __name__ == '__main__':
 
     bg_depth = 1 / (bg_depth + 1e-8)
 
-    prompt = "a dog"
+    prompt = "a car in a desert"
     img = preprocess_image(image)
 
     null_text_emb, init_noise = diff_handles.invert_input_image(img, depth, prompt)
@@ -239,15 +246,33 @@ if __name__ == '__main__':
     print("Saved Reconstruction Image for Check")
 
 
+    rot_axis = [0.0, 1.0, 0.0]
+    rot_angle = 0.0
+    translation = list(exp_dict["transform_npy"][:3, -1])
 
-    # results = diff_handles.transform_foreground(
-    # depth=depth, prompt=prompt,
-    # fg_mask=fg_mask, bg_depth=bg_depth,
-    # null_text_emb=null_text_emb, init_noise=init_noise,
-    # activations=activations,
-    # rot_angle=rot_angle, rot_axis=rot_axis, translation=translation,
-    # use_input_depth_normalization=False)
+    # get transformation parameters
+    translation = torch.tensor(translation, dtype=torch.float32)
+    rot_axis = torch.tensor(rot_axis, dtype=torch.float32) 
+    rot_angle = float(rot_angle) 
 
+    results = diff_handles.transform_foreground(
+    depth=depth, prompt=prompt,
+    fg_mask=fg_mask, bg_depth=bg_depth,
+    null_text_emb=null_text_emb, init_noise=init_noise,
+    activations=activations,
+    rot_angle=rot_angle, rot_axis=rot_axis, translation=translation,
+    use_input_depth_normalization=False)
+
+    if diff_handles.conf.guided_diffuser.save_denoising_steps:
+        edited_img, edited_disparity, denoising_steps = results
+    else:
+        edited_img, edited_disparity = results
+        denoising_steps = None
+
+    # edited_disparity = 1 / (edited_disparity + 1e-8)
+
+    save_image((edited_disparity/edited_disparity.max())[0], exp_dir_dh + "im_disparity_transformed.png")
+    save_image(edited_img[0], exp_dir_dh + "im_edited.png")
     exit()
     
     print(depth.shape, bg_depth.shape)
