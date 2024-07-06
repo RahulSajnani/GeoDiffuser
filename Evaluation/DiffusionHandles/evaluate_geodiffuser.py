@@ -15,6 +15,8 @@ import numpy as np
 import imageio
 from diffhandles import DiffusionHandles
 
+from scipy.spatial.transform import Rotation as R
+import cv2
 
 # Borrowed and Edited from: 
 # 1. https://github.com/adobe-research/DiffusionHandles/blob/main/test/remove_foreground.py
@@ -264,56 +266,88 @@ def latent_to_image(latent_image, diff_handles):
 
     return recon_image
 
-if __name__ == '__main__':
 
-    
-    diff_handles = load_diffhandles_model()
+def convert_transform_to_diffhandles(transform_in):
 
-    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics/Translation_3D/8/"
+    # Convert to and from pytorch3d coordinate frame
+    M = np.eye(4)
+    M[0, 0] = -1.0
+    M[1, 1] = -1.0
+    transform = np.linalg.inv(M) @ transform_in @ M
+
+    # transform = transform_in @ M
+    translation = list(transform[:3, -1])
+    rotation = transform[:3, :3]
+    rot_scipy = R.from_matrix(rotation)
+    axis = rot_scipy.as_rotvec(degrees=True)
+
+    angle = np.linalg.norm(axis) + 1e-8
 
 
-    exp_dict = read_exp(exp_path)
-    # print(exp_dict.keys())
+    axis = (axis / angle)
+
+    if np.linalg.norm(axis) < 0.1:
+        axis = np.array([0.0, 1.0, 0.0])
+
+    axis = list(axis)
+    return axis, angle, translation
+
+def resize_image(image, aspect_ratio):
+
+    # h, w = image.shape[:2]
+    ratio = aspect_ratio[1] / aspect_ratio[0]
+    h, w = 512, 512
+
+    if ratio < 1:
+        new_h, new_w = h / ratio, w
+    else:
+        new_h, new_w = h, ratio * w
+
+    img = cv2.resize(image, (int(new_w),int(new_h)))
+
+    # input_img = np.array(Image.fromarray(img).resize((w, h), Image.NEAREST))
+    return img
+
+def run_geodiff_folder(exp_dict, diff_handles):
+
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     exp_dir_dh = exp_dict["path_name"] + "diffhandles/"
-    # print(exp_dir_dh)
     os.makedirs(exp_dir_dh, exist_ok=True)
-    # exit()
-    # print(exp_dict["depth_npy"].shape, exp_dict["depth_npy"].shape)
-    # exit()
-
-
+    
     image = exp_dict["input_image_png"] / 255.0
     mask = exp_dict["input_mask_png"][..., :1] / 255.0
 
 
+    rot_axis, rot_angle, translation = convert_transform_to_diffhandles(exp_dict["transform_npy"])
+
+    print(rot_angle, rot_axis, translation)
+
+    # exit()
+
     im_removed = remove_foreground(image, mask)
     im_removed_np = im_removed.permute(1, 2, 0).detach().cpu().numpy()
+
+    imageio.imwrite(exp_dir_dh + "im_removed.png", (im_removed_np * 255.0).astype(np.uint8))
     im_removed_depth = estimate_depth(im_removed_np)
     bg_depth = im_removed_depth
-
     fg_mask = preprocess_image(mask)
 
+    depth = preprocess_image(exp_dict["depth_npy"][..., None])
+    # Normalize depth
+    depth = depth / (depth.max() + 1e-8) + 1e-2
+    depth[depth > 0.95] = 1.0
+    bg_depth = bg_depth / (bg_depth.max() + 1e-8) + 1e-2
 
-    depth = estimate_depth(image)[None]
-    # im_d = 1 / (im_d + 1e-8)
-
-    # save_image((im_d/im_d.max())[0], exp_dir_dh + "im_disparity.png")
-
-    # imageio.imwrite(exp_dir_dh + "im_disparity.png", (im_d/im_d.max() * 255.0).astype(np.uint8))
-    # exit()
-    # depth = preprocess_image(exp_dict["depth_npy"][..., None])
-    # depth = 1 / (depth + 1e-2)
     bg_depth = diff_handles.set_foreground(depth=depth, fg_mask=fg_mask, bg_depth=(bg_depth[None]))
 
-    
     im_removed_depth_np = bg_depth[0, 0].detach().cpu().numpy()
     np.save(exp_dir_dh + "bg_depth_diffhandles.npy", im_removed_depth_np)
     im_removed_depth_np_norm = im_removed_depth_np / (im_removed_depth_np.max() + 1e-6)
     imageio.imwrite(exp_dir_dh + "im_removed_depth.png", (im_removed_depth_np_norm * 255.0).astype(np.uint8))
 
-    # bg_depth = 1 / (bg_depth + 1e-2)
-
-    prompt = "a car in a desert"
+    prompt = "a fox"
     img = preprocess_image(image)
 
     null_text_emb, init_noise = diff_handles.invert_input_image(img, depth, prompt)
@@ -323,12 +357,9 @@ if __name__ == '__main__':
 
     recon_image = latent_to_image(latent_image, diff_handles)
     save_image(recon_image.clamp(min=0, max=1)[0], exp_dir_dh + "recon.png")
-    print("Saved Reconstruction Image for Check")
+    # print("Saved Reconstruction Image for Check")
 
 
-    rot_axis = [0.0, 1.0, 0.0]
-    rot_angle = 0.0
-    translation = list(exp_dict["transform_npy"][:3, -1] * 10.0)
 
     # get transformation parameters
     translation = torch.tensor(translation, dtype=torch.float32)
@@ -349,14 +380,31 @@ if __name__ == '__main__':
         edited_img, edited_disparity = results
         denoising_steps = None
 
-    # edited_disparity = 1 / (edited_disparity + 1e-8)
-
     save_image((edited_disparity/edited_disparity.max())[0], exp_dir_dh + "im_disparity_transformed.png")
-    save_image(edited_img[0], exp_dir_dh + "im_edited.png")
+    save_image(edited_img[0], exp_dir_dh + "im_edited_diffhandles_square.png")
+
+
+    resized_edit_image = resize_image(edited_img[0].permute(1, 2, 0).detach().cpu().numpy(), exp_dict["image_shape_npy"])
+
+
+    plt.imsave(exp_dir_dh + "im_edited_diffhandles.png", resized_edit_image)
+    print("[INFO]: Saving Edited Image to location: ", exp_dir_dh + "im_edited_diffhandles.png")
+    
+
+
+
+if __name__ == '__main__':
+
+    print("Running Script!!!!!!!!!!!!!!")
+
+    
+    diff_handles = load_diffhandles_model()
+
+    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics/Rotation_3D/14/"
+
+    exp_dict = read_exp(exp_path)
+    run_geodiff_folder(exp_dict, diff_handles)
+
     exit()
+
     
-    print(depth.shape, bg_depth.shape)
-    # exit()
-    
-    imageio.imwrite(exp_dir_dh + "im.png", exp_dict["input_image_png"])
-    save_image(im_removed, exp_dir_dh + "im_removed.png")

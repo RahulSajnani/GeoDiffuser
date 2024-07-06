@@ -105,7 +105,8 @@ class DiffusionHandles:
         bg_depth = solve_laplacian_depth(
             depth[0, 0].cpu().numpy(),
             bg_depth[0, 0].cpu().numpy(),
-            scipy.ndimage.binary_dilation(fg_mask[0, 0].cpu().numpy(), iterations=15))
+            scipy.ndimage.binary_dilation(fg_mask[0, 0].cpu().numpy(), iterations=30))
+        print("30 iterations")
         bg_depth = torch.from_numpy(bg_depth).to(device=self.device)[None, None]
 
         return bg_depth
