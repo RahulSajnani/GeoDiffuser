@@ -105,7 +105,7 @@ class DiffusionHandles:
         bg_depth = solve_laplacian_depth(
             depth[0, 0].cpu().numpy(),
             bg_depth[0, 0].cpu().numpy(),
-            scipy.ndimage.binary_dilation(fg_mask[0, 0].cpu().numpy(), iterations=30))
+            scipy.ndimage.binary_dilation(fg_mask[0, 0].cpu().numpy(), iterations=15))
         print("30 iterations")
         bg_depth = torch.from_numpy(bg_depth).to(device=self.device)[None, None]
 
@@ -117,7 +117,7 @@ class DiffusionHandles:
             null_text_emb: torch.Tensor, init_noise: torch.Tensor, 
             activations: list[torch.Tensor],
             rot_angle: float = None, rot_axis: torch.Tensor = None, translation: torch.Tensor = None,
-            fg_weight: float = None, bg_weight: float = None, use_input_depth_normalization=False):
+            fg_weight: float = None, bg_weight: float = None, use_input_depth_normalization=False, depth_transform = None):
         """
         Transform the foreground object. The following steps are performed:
         1) The depth of the foreground object is 3D-transformed, giving us a an updated depth map and corresondences between old and new 2D image coordinates.
@@ -147,7 +147,7 @@ class DiffusionHandles:
                 intrinsics=self.diffuser.get_depth_intrinsics(device=depth.device),
                 rot_angle=rot_angle, rot_axis=rot_axis, translation=translation,
                 use_input_depth_normalization=use_input_depth_normalization,
-                depth_transform_mode=self.conf.depth_transform_mode)
+                depth_transform_mode=self.conf.depth_transform_mode, depth_2D = depth_transform)
 
         # perform second diffusion inference pass guided by the 3d-transformed features
         with torch.no_grad():

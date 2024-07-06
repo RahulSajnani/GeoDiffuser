@@ -310,7 +310,7 @@ def resize_image(image, aspect_ratio):
 
 def run_geodiff_folder(exp_dict, diff_handles):
 
-
+    print("[INFO]: Running Diffusion Handles on exp: ", exp_dict["path_name"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     exp_dir_dh = exp_dict["path_name"] + "diffhandles/"
@@ -319,10 +319,16 @@ def run_geodiff_folder(exp_dict, diff_handles):
     image = exp_dict["input_image_png"] / 255.0
     mask = exp_dict["input_mask_png"][..., :1] / 255.0
 
+    prompt = exp_dict["prompt_txt"]
+
+    if prompt is None:
+        prompt = ""
+    print(prompt)
+    # exit()
 
     rot_axis, rot_angle, translation = convert_transform_to_diffhandles(exp_dict["transform_npy"])
 
-    print(rot_angle, rot_axis, translation)
+    # print(rot_angle, rot_axis, translation)
 
     # exit()
 
@@ -335,19 +341,35 @@ def run_geodiff_folder(exp_dict, diff_handles):
     fg_mask = preprocess_image(mask)
 
     depth = preprocess_image(exp_dict["depth_npy"][..., None])
+
+    is_2D_transform = False
+    if np.all(depth[0,0].detach().cpu().numpy() == 0.5):
+        is_2D_transform = True
+    # exit()
     # Normalize depth
     depth = depth / (depth.max() + 1e-8) + 1e-2
     depth[depth > 0.95] = 1.0
     bg_depth = bg_depth / (bg_depth.max() + 1e-8) + 1e-2
 
+    depth_2D = None
+    if is_2D_transform:
+        print("[INFO]: 2D Transform")
+        depth_2D = depth
+        depth = estimate_depth(image)[None]
+        # bg_depth = diff_handles.set_foreground(depth=depth, fg_mask=fg_mask, bg_depth=(bg_depth[None]))
+
+        # bg_depth = depth
+    # else:
     bg_depth = diff_handles.set_foreground(depth=depth, fg_mask=fg_mask, bg_depth=(bg_depth[None]))
 
+    # exit()
     im_removed_depth_np = bg_depth[0, 0].detach().cpu().numpy()
     np.save(exp_dir_dh + "bg_depth_diffhandles.npy", im_removed_depth_np)
     im_removed_depth_np_norm = im_removed_depth_np / (im_removed_depth_np.max() + 1e-6)
     imageio.imwrite(exp_dir_dh + "im_removed_depth.png", (im_removed_depth_np_norm * 255.0).astype(np.uint8))
 
-    prompt = "a fox"
+
+
     img = preprocess_image(image)
 
     null_text_emb, init_noise = diff_handles.invert_input_image(img, depth, prompt)
@@ -372,7 +394,7 @@ def run_geodiff_folder(exp_dict, diff_handles):
     null_text_emb=null_text_emb, init_noise=init_noise,
     activations=activations,
     rot_angle=rot_angle, rot_axis=rot_axis, translation=translation,
-    use_input_depth_normalization=False)
+    use_input_depth_normalization=False, depth_transform=depth_2D)
 
     if diff_handles.conf.guided_diffuser.save_denoising_steps:
         edited_img, edited_disparity, denoising_steps = results
@@ -390,8 +412,60 @@ def run_geodiff_folder(exp_dict, diff_handles):
     plt.imsave(exp_dir_dh + "im_edited_diffhandles.png", resized_edit_image)
     print("[INFO]: Saving Edited Image to location: ", exp_dir_dh + "im_edited_diffhandles.png")
     
+def get_exp_types():
+    
+    exp_types = ["Removal", "Rotation_3D", "Rotation_2D", "Translation_3D", "Scaling", "Mix", "Translation_2D"]
+
+    return exp_types
+
+def check_if_exp_root(exp_root_folder, folder_list = None):
+
+    if folder_list is None:    
+        folder_list = glob.glob(complete_path(exp_root_folder) + "**/")
+    
+    exp_types = get_exp_types()
 
 
+    for f in folder_list:
+        # print(f.split("/"))
+        if f.split("/")[-2] in exp_types:
+            return True
+
+    return False
+
+
+
+def run_geodiff(exp_root_folder, diff_handles):
+
+    folder_list = glob.glob(complete_path(exp_root_folder) + "**/")
+    folder_list.sort()
+
+    # print(folder_list)
+
+    if check_if_exp_root(exp_root_folder):
+        root_folders_list = folder_list
+        for f in root_folders_list:
+            folder_list = glob.glob(complete_path(f) + "**/")
+            folder_list.sort()
+
+            exp_cat = f.split("/")[-2]
+            # if not (exp_cat == "Translation_2D"):
+            #     continue
+            if exp_cat == "Removal" or exp_cat == "Translation_2D":
+                continue
+
+
+            for exp_folder in folder_list:
+
+                # run_dragon_diffusion_single(exp_folder, dragon_diff_model)
+                exp_dict = read_exp(exp_folder)
+                run_geodiff_folder(exp_dict, diff_handles)
+    
+            # exit()
+    else:
+        for exp_folder in folder_list:
+            exp_dict = read_exp(exp_path)
+            run_geodiff_folder(exp_dict, diff_handles)
 
 if __name__ == '__main__':
 
@@ -400,8 +474,12 @@ if __name__ == '__main__':
     
     diff_handles = load_diffhandles_model()
 
-    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics/Rotation_3D/14/"
 
+
+    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics_2/Translation_3D/14/"
+
+
+    # run_geodiff(exp_path, diff_handles)
     exp_dict = read_exp(exp_path)
     run_geodiff_folder(exp_dict, diff_handles)
 

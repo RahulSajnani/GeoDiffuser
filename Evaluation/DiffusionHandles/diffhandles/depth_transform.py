@@ -73,7 +73,7 @@ def depth_to_mesh(depth: torch.Tensor, intrinsics: torch.Tensor, extrinsics_R: t
 def transform_depth(
         depth: torch.Tensor, bg_depth: torch.Tensor, fg_mask: torch.Tensor, intrinsics: torch.Tensor,
         rot_angle: float = None, rot_axis: torch.Tensor = None, translation: torch.Tensor = None,
-        use_input_depth_normalization = False, depth_transform_mode: str = "pc"):
+        use_input_depth_normalization = False, depth_transform_mode: str = "pc", depth_2D = None):
 
     if depth_transform_mode == "mesh":
         return transform_depth_mesh(
@@ -84,7 +84,7 @@ def transform_depth(
         return transform_depth_pc(
             depth=depth, bg_depth=bg_depth, fg_mask=fg_mask, intrinsics=intrinsics,
             rot_angle=rot_angle, rot_axis=rot_axis, translation=translation,
-            use_input_depth_normalization=use_input_depth_normalization)
+            use_input_depth_normalization=use_input_depth_normalization, depth_2D = depth_2D)
     else:
         raise ValueError(f"Unknown depth transform mode '{depth_transform_mode}'.")
     
@@ -198,7 +198,7 @@ def transform_depth_mesh(
 def transform_depth_pc(
         depth: torch.Tensor, bg_depth: torch.Tensor, fg_mask: torch.Tensor, intrinsics: torch.Tensor,
         rot_angle: float = None, rot_axis: torch.Tensor = None, translation: torch.Tensor = None,
-        use_input_depth_normalization = False):
+        use_input_depth_normalization = False, depth_2D = None):
 
     if not fg_mask.any():
         # foreground mask is empty, there is no foreground object
@@ -223,9 +223,14 @@ def transform_depth_pc(
     if translation is None:
         translation = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32, device=depth.device)
 
-    bg_pts = depth_to_world_coords(bg_depth, intrinsics=intrinsics)
-    pts = depth_to_world_coords(depth, intrinsics=intrinsics)
-    
+    if depth_2D is not None:
+        print("[INFO]: 2D depth in diff handles")
+        bg_pts = depth_to_world_coords(depth_2D, intrinsics=intrinsics)
+        pts = depth_to_world_coords(depth_2D, intrinsics=intrinsics)
+    else:
+        bg_pts = depth_to_world_coords(bg_depth, intrinsics=intrinsics)
+        pts = depth_to_world_coords(depth, intrinsics=intrinsics)
+
     device = fg_mask.device
     
     if fg_mask.shape[-2] != fg_mask.shape[-1]:
@@ -290,8 +295,10 @@ def transform_depth_pc(
         _, depth_bounds = normalize_depth(1.0/depth, return_bounds=True)
     else:
         depth_bounds = None
-    rendered_depth = normalize_depth(1.0/rendered_depth, bounds=depth_bounds)
     
+    if depth_2D is not None:
+        rendered_depth = normalize_depth(1.0/rendered_depth, bounds=depth_bounds)
+        
     rendered_depth = rendered_depth[0, 0, ...].cpu().numpy()
 
     #plot_img(rendered_depth)
