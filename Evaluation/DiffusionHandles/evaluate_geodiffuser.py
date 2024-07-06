@@ -323,7 +323,7 @@ def run_geodiff_folder(exp_dict, diff_handles):
 
     if prompt is None:
         prompt = ""
-    print(prompt)
+    print("[INFO]: prompt: ", prompt)
     # exit()
 
     rot_axis, rot_angle, translation = convert_transform_to_diffhandles(exp_dict["transform_npy"])
@@ -351,11 +351,15 @@ def run_geodiff_folder(exp_dict, diff_handles):
     depth[depth > 0.95] = 1.0
     bg_depth = bg_depth / (bg_depth.max() + 1e-8) + 1e-2
 
+    if is_2D_transform:
+        print(fg_mask.shape, depth.shape)
+        depth[fg_mask > 0.5] = 0.5
+
     depth_2D = None
     if is_2D_transform:
         print("[INFO]: 2D Transform")
-        depth_2D = depth
-        depth = estimate_depth(image)[None]
+        # depth_2D = depth
+        # depth = estimate_depth(image)[None]
         # bg_depth = diff_handles.set_foreground(depth=depth, fg_mask=fg_mask, bg_depth=(bg_depth[None]))
 
         # bg_depth = depth
@@ -394,7 +398,7 @@ def run_geodiff_folder(exp_dict, diff_handles):
     null_text_emb=null_text_emb, init_noise=init_noise,
     activations=activations,
     rot_angle=rot_angle, rot_axis=rot_axis, translation=translation,
-    use_input_depth_normalization=False, depth_transform=depth_2D)
+    use_input_depth_normalization=False)
 
     if diff_handles.conf.guided_diffuser.save_denoising_steps:
         edited_img, edited_disparity, denoising_steps = results
@@ -451,7 +455,7 @@ def run_geodiff(exp_root_folder, diff_handles):
             exp_cat = f.split("/")[-2]
             # if not (exp_cat == "Translation_2D"):
             #     continue
-            if exp_cat == "Removal" or exp_cat == "Translation_2D":
+            if exp_cat == "Removal":
                 continue
 
 
@@ -464,7 +468,7 @@ def run_geodiff(exp_root_folder, diff_handles):
             # exit()
     else:
         for exp_folder in folder_list:
-            exp_dict = read_exp(exp_path)
+            exp_dict = read_exp(exp_folder)
             run_geodiff_folder(exp_dict, diff_handles)
 
 if __name__ == '__main__':
@@ -476,12 +480,12 @@ if __name__ == '__main__':
 
 
 
-    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics_2/Translation_3D/14/"
+    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics_2/Translation_2D/"
 
 
-    # run_geodiff(exp_path, diff_handles)
-    exp_dict = read_exp(exp_path)
-    run_geodiff_folder(exp_dict, diff_handles)
+    run_geodiff(exp_path, diff_handles)
+    # exp_dict = read_exp(exp_path)
+    # run_geodiff_folder(exp_dict, diff_handles)
 
     exit()
 
