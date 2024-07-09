@@ -17,6 +17,9 @@ from diffhandles import DiffusionHandles
 
 from scipy.spatial.transform import Rotation as R
 import cv2
+from torchvision.transforms import Compose
+from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
+from depth_anything.dpt import DepthAnything
 
 # Borrowed and Edited from: 
 # 1. https://github.com/adobe-research/DiffusionHandles/blob/main/test/remove_foreground.py
@@ -89,6 +92,7 @@ def crop_and_resize(img: torch.Tensor, size: int) -> torch.Tensor:
 DIFF_HANDLES_MODEL = None
 DEPTH_MODEL = None
 INPAINTING_MODEL = None
+DEPTH_ANYTHING_MODEL = None
 
 def count_folders(directory):
     return len([name for name in os.listdir(directory) if os.path.isdir(os.path.join(directory, name))])
@@ -217,11 +221,66 @@ def remove_foreground(image, fg_mask, img_res=IMG_RES, dilation=10):
     
     return bg_img[0]
 
+@torch.no_grad()
+def get_monocular_depth_anything(image, encoder = "vitl", translate_factor=0.1):
+
+    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+    global DEPTH_ANYTHING_MODEL
+    transform = Compose([
+            Resize(
+                width=518,
+                height=518,
+                resize_target=False,
+                keep_aspect_ratio=True,
+                ensure_multiple_of=14,
+                resize_method='lower_bound',
+                image_interpolation_method=cv2.INTER_CUBIC,
+            ),
+            NormalizeImage(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            PrepareForNet(),
+        ])
+
+        
+    if DEPTH_ANYTHING_MODEL is None:
+        depth_anything = DepthAnything.from_pretrained('LiheYoung/depth_anything_{}14'.format(encoder)).to(DEVICE)
+        DEPTH_ANYTHING_MODEL = depth_anything
+
+    else:
+        depth_anything = DEPTH_ANYTHING_MODEL
+
+
+    image = image.astype("uint8") / 255.0
+        
+    h, w = image.shape[:2]
+    
+    image = transform({'image': image})['image']
+    image = torch.from_numpy(image).unsqueeze(0).to(DEVICE)
+
+    depth = depth_anything(image)
+
+    depth = torch.nn.functional.interpolate(depth[None], (h, w), mode='bilinear', align_corners=False)[0, 0]
+
+    # Converts from relative to absolute depth. This works better than using 1/depth
+    depth = depth.max() - depth
+    
+
+    # Translation factor computation
+    # # Pushes object farther off to reduce smearing
+    # depth = depth + depth.max() * translate_factor
+
+    return depth
+
+
 def estimate_depth(image, img_res=IMG_RES):
 
-    global DEPTH_MODEL
+    global DEPTH_MODEL, DEPTH_ANYTHING_MODEL
 
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+
+    d_depth_anything = get_monocular_depth_anything(image)
+
     if DEPTH_MODEL is None:
 
 
@@ -237,7 +296,10 @@ def estimate_depth(image, img_res=IMG_RES):
     with torch.no_grad():
         depth = depth_estimator.infer(image_d)
 
-    return depth[0]
+    
+    # print(depth.shape, d_depth_anything.shape)
+
+    return depth[0], d_depth_anything[None]
     
 
 def load_diffhandles_model(config_path=None):
@@ -308,6 +370,40 @@ def resize_image(image, aspect_ratio):
     # input_img = np.array(Image.fromarray(img).resize((w, h), Image.NEAREST))
     return img
 
+
+def get_depth_error(depth_data, depth, mask):
+
+    return torch.mean(torch.abs(depth_data - depth)[mask >= 0.5])
+
+def get_depth_translation_factor_and_error_geodiffuser(depth_data, depth, mask):
+    # Note here we expect BACKGROUND mask not FOREGROUND MASK!
+    d_max = depth.max()
+    # depth + d_max * t = depth_data
+    t_factor = torch.mean((depth_data - depth)[mask >= 0.5]) / d_max
+    d_new = depth + d_max * t_factor
+    d_error = get_depth_error(depth_data, d_new, mask)
+
+    print("[INFO]: t_factor: ", t_factor, " and d_error: ", d_error)
+    return t_factor, d_error, d_new
+
+
+
+def get_best_depth(depth_data_in, d_depth_zoe, d_depth_anything, mask_in):
+
+    depth_data = depth_data_in[0]
+    mask = mask_in[0]
+    print("[info]: depths: ", depth_data.max(), d_depth_zoe.max(), d_depth_anything.max(), mask.max(), mask.min(), mask.shape)
+    
+    t_factor, d_error, d_1 = get_depth_translation_factor_and_error_geodiffuser(depth_data, d_depth_anything, mask)
+
+    t_factor_2, d_error_2, d_2 = get_depth_translation_factor_and_error_geodiffuser(depth_data, d_depth_zoe, mask)
+
+
+    if d_error < d_error_2:
+        return d_1
+    else:
+        return d_2
+
 def run_geodiff_folder(exp_dict, diff_handles):
 
     print("[INFO]: Running Diffusion Handles on exp: ", exp_dict["path_name"])
@@ -336,11 +432,15 @@ def run_geodiff_folder(exp_dict, diff_handles):
     im_removed_np = im_removed.permute(1, 2, 0).detach().cpu().numpy()
 
     imageio.imwrite(exp_dir_dh + "im_removed.png", (im_removed_np * 255.0).astype(np.uint8))
-    im_removed_depth = estimate_depth(im_removed_np)
-    bg_depth = im_removed_depth
+
+    im_removed_depth, im_removed_depth_anything = estimate_depth(im_removed_np)
+
     fg_mask = preprocess_image(mask)
 
     depth = preprocess_image(exp_dict["depth_npy"][..., None])
+    im_removed_depth = get_best_depth(depth, im_removed_depth, im_removed_depth_anything, 1.0 - fg_mask)
+    # exit()
+    bg_depth = im_removed_depth
 
     is_2D_transform = False
     if np.all(depth[0,0].detach().cpu().numpy() == 0.5):
