@@ -455,7 +455,7 @@ def run_geodiff(exp_root_folder, diff_handles):
             exp_cat = f.split("/")[-2]
             # if not (exp_cat == "Translation_2D"):
             #     continue
-            if exp_cat == "Removal":
+            if exp_cat == "Removal" or exp_cat == "Translation_2D":
                 continue
 
 
@@ -480,7 +480,7 @@ if __name__ == '__main__':
 
 
 
-    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics_2/Translation_2D/"
+    exp_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics_2/"
 
 
     run_geodiff(exp_path, diff_handles)

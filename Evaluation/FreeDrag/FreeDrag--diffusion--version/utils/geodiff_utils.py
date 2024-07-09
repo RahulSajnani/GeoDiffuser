@@ -117,17 +117,19 @@ def project_points_to_3D(im, K, d):
 
 def get_geodiff_translation(im, K, d_in, transform_mat, obj_mask):
 
+    print(transform_mat)
+
     d, mask_d = prepare_depth_for_projection(d_in, obj_mask[..., 0] / 255.0)
 
 
     pts_3D, cam_coords = project_points_to_3D(im, K, d) # h, w, 3
 
-    pts_3D_pcd = np.reshape(pts_3D, (-1, 3))
+    pts_3D_pcd = np.reshape(np.transpose(pts_3D, (-1, 0, 1)), (3, -1)).T
     obj_center = np.mean(pts_3D_pcd[np.reshape(mask_d, (-1)) >= 0.5, :], 0)
 
     pts_3D_hom = np.concatenate([pts_3D, np.ones_like(pts_3D[..., :1])], -1) # h, w, 4
 
-    T_mean = translateMatrixFromVector(-obj_center)
+    T_mean = translateMatrixFromVector(obj_center)
 
     pose_transform = T_mean @ transform_mat @ np.linalg.inv(T_mean)
 
@@ -214,9 +216,9 @@ def prepare_depth_for_projection(d, mask_in = None):
         # Normalize depth
         depth = depth / (depth.max() + 1e-8)
 
-        depth[depth > 0.95] = 1000.0
+        depth[depth > 0.95] = 10.0
 
-    mask = (depth < 100.0) * 1.0
+    mask = (depth < 10.0) * 1.0
 
     if obj_mask is not None:
         mask = obj_mask * mask

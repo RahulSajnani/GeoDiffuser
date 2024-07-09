@@ -42,6 +42,7 @@ def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5
     depth = exp_dict["depth_npy"]
     transform_mat = exp_dict["transform_npy"]
     print(exp_dict["prompt_txt"])
+    print("[INFO]: Running on folder: ", exp_dict["path_name"])
     K = camera_matrix(550, 550, image.shape[1] / 2.0, image.shape[0] / 2.0)
 
     d_path = complete_path(exp_dict["path_name"]) + "free_drag/"
@@ -65,6 +66,8 @@ def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5
     source_pts = source_pts[mask_pts >= 0.5, :2]
     target_pts = flow[mask_pts >= 0.5, :2]
 
+    print(source_pts.shape)
+
     mask_updated = get_editing_mask(source_pts, target_pts, im_size)
 
     # Creating kernel 
@@ -82,14 +85,16 @@ def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5
     
     # drag_pts = flow[mask_pts >= 0.5]
 
-    idx_array = np.random.choice(source_pts.shape[0] - 1, 20)
+    idx_array = np.random.choice(source_pts.shape[0] - 1, 40)
     input_drag_img, selected_points = get_points_geodiff(masked_image, source_pts[idx_array].astype(int), target_pts[idx_array].astype(int))
 
+    # source_pts
     print(selected_points)
     # exit()
 
     plt.imsave(d_path + "input_free_drag.png", input_drag_img)
     plt.imsave(d_path + "input_free_drag_resized.png", resize_image(input_drag_img, exp_dict["image_shape_npy"]))
+    print("Saved FreeDrag Input")
     # exit()
 
     prompt = exp_dict["prompt_txt"]
@@ -163,7 +168,7 @@ def run_freedrag_geodiff(exp_root_folder, model_path = "runwayml/stable-diffusio
             folder_list.sort()
 
             exp_cat = f.split("/")[-2]
-            if not (exp_cat == "Translation_2D"):
+            if  (exp_cat == "Removal"):
                 continue
 
             for exp_folder in folder_list:

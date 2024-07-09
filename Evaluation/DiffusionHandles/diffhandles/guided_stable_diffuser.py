@@ -142,10 +142,11 @@ class GuidedStableDiffuser(GuidedDiffuser):
         # cx = 0.5 * w
         # cy = 0.5 * h
 
-        fov = 55.0
+        fov = 49.919
         f = 1.0 / np.tan(0.5 * fov * (np.pi / 180.0))
         cx = 0.0
         cy = 0.0
+        print("[INFO]: Camera FOV: ", fov)
         return torch.tensor([
             [f, 0, cx],
             [0, f, cy],
