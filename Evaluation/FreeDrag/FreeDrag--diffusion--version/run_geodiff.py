@@ -1,5 +1,7 @@
 from utils.geodiff_utils import *
 import os
+import time
+
 os.environ['HF_HOME'] = "/oscar/scratch/rsajnani/rsajnani/research/.cache/hf"
 from utils.ui_utils import clear_all, train_lora_interface, run_drag
 np.random.seed(1234)
@@ -101,6 +103,9 @@ def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5
     if prompt is None:
         prompt = ""
 
+
+    start = time.perf_counter()
+
     train_lora_interface(
         original_image,
         prompt,
@@ -111,6 +116,8 @@ def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5
         lora_lr,
         lora_batch_size,
         lora_rank)
+
+    mid = time.perf_counter()
 
     # exit()
 
@@ -132,6 +139,13 @@ def run_freedrag_single(exp_folder, model_path = "runwayml/stable-diffusion-v1-5
         start_layer,
         )
 
+
+    end = time.perf_counter()
+    print("Time taken for LoRa (s): ", mid - start)
+    print("Time taken for edit (s): ", end - mid)
+
+    print("Edit time (s): ", end - start)
+    exit()
     print(output_image.shape)
     # output_image = dragon_diff_model.run_move(original_image=image, mask=mask, mask_ref=None, prompt=prompt, resize_scale=1.0, w_edit=4, w_content=6, w_contrast=0.2, w_inpaint=5.0, seed=42, selected_points=selected_points, guidance_scale=4, energy_scale=0.5, max_resolution=768, SDE_strength = 0.4, ip_scale=0.1)
 

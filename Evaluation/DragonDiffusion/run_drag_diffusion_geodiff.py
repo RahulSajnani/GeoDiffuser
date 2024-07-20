@@ -2,6 +2,10 @@ from src.demo.model import DragonModels
 import numpy as np
 import cv2, glob, argparse, os
 import matplotlib.pyplot as plt
+import time
+import os
+os.environ['HF_HOME'] = "/oscar/scratch/rsajnani/rsajnani/research/.cache/hf"
+
 
 def count_folders(directory):
     return len([name for name in os.listdir(directory) if os.path.isdir(os.path.join(directory, name))])
@@ -293,8 +297,12 @@ def run_dragon_diffusion_single(exp_folder, dragon_diff_model):
     if prompt is None:
         prompt = ""
 
+    s_time = time.perf_counter()
     output_image = dragon_diff_model.run_move(original_image=image, mask=mask, mask_ref=None, prompt=prompt, resize_scale=1.0, w_edit=4, w_content=6, w_contrast=0.2, w_inpaint=5.0, seed=42, selected_points=selected_points, guidance_scale=4, energy_scale=0.5, max_resolution=768, SDE_strength = 0.4, ip_scale=0.1)
+    e_time = time.perf_counter()
 
+    print("Edit time (s): ", e_time - s_time)
+    # exit()
     # print(type(output_image))
 
     d_path = complete_path(exp_dict["path_name"]) + "dragon_diffusion/"

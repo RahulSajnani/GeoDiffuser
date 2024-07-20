@@ -24,6 +24,7 @@ from skimage.filters import gaussian
 import blending
 import math
 import argparse
+import time
 SAM_MODEL = None
 
 
@@ -740,7 +741,10 @@ def run_and_save_zero123_single(exp_folder, model):
 
     # exit()
     # Matching the frame of pytorch3d?
+
+    s_time = time.perf_counter()
     im_out_gen = run_zero123(model, im_out, x=-x, y=y, z=-5*z)
+    m_time = time.perf_counter()
     im_out_gen = np.array(im_out_gen[0])
 
     mask_out = get_mask_from_output(im_out_gen)
@@ -763,6 +767,13 @@ def run_and_save_zero123_single(exp_folder, model):
 
     im_blended, inpainting_mask, im_blended_2 = get_blend_image_and_inpainting_mask(im, im_mask[..., 0] / 255.0, im_obj, m_obj, obj_center, inpainted_background = inpainted_background)
 
+    e_time = time.perf_counter()
+
+    print("Time zero123 xl (s):", m_time - s_time)
+    print("remaining: ", e_time - m_time)
+    print("Time (s):", e_time - s_time)
+
+    exit()
     out_path_dir = exp_folder + "zero123/"
     os.makedirs(out_path_dir, exist_ok = True)
     

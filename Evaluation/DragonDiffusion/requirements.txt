@@ -1,5 +1,4 @@
 basicsr
-torch==2.0.1
 diffusers==0.18.0
 xformers==0.0.21
 transformers==4.30.1
