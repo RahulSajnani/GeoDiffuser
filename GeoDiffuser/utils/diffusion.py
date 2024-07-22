@@ -1,0 +1,113 @@
+import torch
+from GeoDiffuser.utils.generic import log_args
+
+@torch.autocast("cuda", dtype=torch.half)
+def diffusion_step(model, controller, latents, context, t, guidance_scale, low_resource=False, transform_coords=None, use_cfg=True, return_noise = False):
+ 
+    if use_cfg:
+        latents_input = torch.cat([latents] * 2)
+        noise_pred = model.unet(latents_input, t, encoder_hidden_states=context)["sample"]
+        noise_pred_uncond, noise_prediction_text = noise_pred.chunk(2)
+        noise_pred_out = noise_pred_uncond + guidance_scale * (noise_prediction_text - noise_pred_uncond)
+    else:
+        latents = latents#.to(memory_format=torch.channels_last)
+        model.unet = model.unet#.to(memory_format=torch.channels_last)
+        noise_pred_out = model.unet(latents, t, encoder_hidden_states=context)["sample"]
+
+    latents_out = model.scheduler.step(noise_pred_out, t, latents, eta=0.0)["prev_sample"]
+    latents_out = controller.step_callback(latents_out, transform_coords)
+    SPLATTER.clear_cache()
+
+    if return_noise:
+        return latents_out, noise_pred_out
+
+    return latents_out
+
+@torch.autocast("cuda", dtype=torch.half)
+def latent2image(vae, latents):
+    latents = 1 / 0.18215 * latents
+    image = vae.decode(latents)['sample']
+    image = (image / 2 + 0.5).clamp(0, 1)
+    image = image.cpu().permute(0, 2, 3, 1).numpy()
+    image = (image * 255).astype(np.uint8)
+    return image
+
+# @torch.no_grad()
+def image2latent(image, model, mask = None):
+    with torch.no_grad():
+        if type(image) is Image:
+            image = np.array(image)
+        if type(image) is torch.Tensor and image.dim() == 4:
+            latents = image
+        else:
+            image = torch.from_numpy(image).float() / 127.5 - 1
+            
+            if mask is not None:
+                
+                if type(mask) is np.ndarray:
+                    mask_in = torch.from_numpy(mask).float()
+                    image = image * (mask_in[..., None] < 0.5)
+                    image = image.permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+                else:
+                    mask_in = mask
+                    image = image.permute(2, 0, 1).unsqueeze(0).to(DEVICE).tile(mask.shape[0], 1, 1, 1)
+                    image = image * (mask_in < 0.5).to(DEVICE)
+                    
+            else:
+                image = image.permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+                 
+            
+            latents = model.vae.encode(image)['latent_dist'].mean
+            latents = latents * 0.18215
+    return latents
+
+def load_model(unet_path = ""):
+
+    global UNET_NAME
+
+    data_type = torch.half
+    # ldm_stable = StableDiffusionXLPipeline.from_pretrained(DIFFUSION_MODEL, use_auth_token=MY_TOKEN, torch_dtype=torch.half).to(DEVICE)
+    ldm_stable = StableDiffusionPipeline.from_pretrained(DIFFUSION_MODEL, use_auth_token=MY_TOKEN, torch_dtype=torch.half).to(DEVICE)
+    # print(ldm_stable.scheduler.config)
+    # scheduler = DDIMScheduler.from_pretrained(DIFFUSION_MODEL, subfolder='scheduler', beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False)
+    scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False)
+
+    # variant="fp16"
+    ldm_stable.scheduler = scheduler
+    
+    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+
+    # ldm_stable = StableDiffusionPipeline.from_pretrained(DIFFUSION_MODEL, use_auth_token=MY_TOKEN, scheduler=scheduler).to(DEVICE)
+    try:
+        ldm_stable.disable_xformers_memory_efficient_attention()
+    except AttributeError:
+        print("Attribute disable_xformers_memory_efficient_attention() is missing")
+    tokenizer = ldm_stable.tokenizer
+    
+    ldm_stable.unet.set_attn_processor(VanillaAttentionProcessor())
+    
+    if DIFFUSION_MODEL.split("-")[-2] == "v1":
+        print("[INFO]: Using Updated vae")
+        ldm_stable.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse", torch_dtype=torch.half).to(DEVICE).eval()
+
+    # ldm_stable.vae.set_attn_processor(diffusers.models.attention_processor.AttnProcessor())
+
+    UNET_NAME = DIFFUSION_MODEL
+    if unet_path != "":
+        print("[INFO]: Loading UNET model from path: ", unet_path)
+        ldm_stable.unet = UNet2DConditionModel.from_pretrained(
+        unet_path, subfolder="unet", torch_dtype=data_type).to(DEVICE)
+        UNET_NAME = unet_path
+    
+    # ldm_stable.unet = torch.compile(ldm_stable.unet, mode = "reduce-overhead")
+    ldm_stable.unet = ldm_stable.unet.eval()
+
+    
+
+
+
+    # print("compile done!")
+    # print(ldm_stable.unet.config)
+    # exit()
+    
+    return ldm_stable, tokenizer, scheduler
