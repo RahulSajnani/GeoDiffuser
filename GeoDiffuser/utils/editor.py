@@ -1,15 +1,38 @@
 import torch
 from GeoDiffuser.utils.ptp_utils import view_images
+from GeoDiffuser.utils.generic import log_args
+
 import random
 import pytorch_lightning as pl
 import xformers.ops as xops
 
 import logging
+from typing import Optional, Union, Tuple, List, Callable, Dict
 
 from diffusers.models.attention_processor import USE_PEFT_BACKEND
 from diffusers.models import AutoencoderKL
 from diffusers import StableDiffusionPipeline, DDIMScheduler, DDIMInverseScheduler, StableDiffusionXLPipeline, UNet2DConditionModel
+from GeoDiffuser.utils.warp_utils import RasterizePointsXYsBlending
+from GeoDiffuser.utils import warp_utils, vis_utils
+from GeoDiffuser.utils.inversion import NullInversion
 
+LOW_RESOURCE = False 
+NUM_DDIM_STEPS = 50
+GUIDANCE_SCALE = 4.0
+MAX_NUM_WORDS = 77
+IMAGE_SIZE = 512
+SKIP_OPTIM_STEPS = 0
+SEED = 1234
+DEVICE = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+MODE="bilinear"
+SPLATTER = RasterizePointsXYsBlending()
+
+UNCOND_TEXT = ""
+LDM_STABLE = None
+SCHEDULER = None
+TOKENIZER = None
+UNET_NAME = None
+PROGRESS_BAR = None
 
 @torch.no_grad()
 def text2image_ldm_stable(
@@ -512,7 +535,7 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
     TOKENIZER = tokenizer
     SCHEDULER = scheduler    
 
-    null_inversion = NullInversion(ldm_stable)
+    null_inversion = NullInversion(ldm_stable, num_ddim_steps=NUM_DDIM_STEPS, uncond_text=UNCOND_TEXT, device=DEVICE, progress_bar = PROGRESS_BAR, guidance_scale = GUIDANCE_SCALE)
 
     state = torch.get_rng_state()
 
@@ -522,6 +545,8 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
 
     (image_gt, image_enc), x_t, uncond_embeddings, ddim_latents, ddim_noise = null_inversion.invert(image, prompt, offsets=(0,0,0,0), verbose=True, perform_inversion = perform_inversion, image_2 = image_stitch)
     print("inversion done!")
+
+    exit()
 
 
 

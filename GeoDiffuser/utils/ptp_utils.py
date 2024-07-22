@@ -156,7 +156,7 @@ def aggregate_attention(attention_store, res: int, from_where: List[str], is_cro
     return out.cpu()
 
 
-def show_cross_attention(attention_store: AttentionStore, res: int, from_where: List[str], select: int = 0):
+def show_cross_attention(attention_store, res: int, from_where: List[str], select: int = 0):
     tokens = tokenizer.encode(prompts[select])
     decoder = tokenizer.decode
     attention_maps = aggregate_attention(attention_store, res, from_where, True, select)
@@ -172,7 +172,7 @@ def show_cross_attention(attention_store: AttentionStore, res: int, from_where: 
     view_images(np.stack(images, axis=0))
     
 
-def show_self_attention_comp(attention_store: AttentionStore, res: int, from_where: List[str],
+def show_self_attention_comp(attention_store, res: int, from_where: List[str],
                         max_com=10, select: int = 0):
     attention_maps = aggregate_attention(attention_store, res, from_where, False, select).numpy().reshape((res ** 2, res ** 2))
     u, s, vh = np.linalg.svd(attention_maps - np.mean(attention_maps, axis=1, keepdims=True))

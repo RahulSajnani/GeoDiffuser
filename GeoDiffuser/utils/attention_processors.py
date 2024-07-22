@@ -1,5 +1,9 @@
 import torch
 import abc
+from typing import Optional, Union, Tuple, List, Callable, Dict
+from GeoDiffuser.utils.attention_sharing import *
+from diffusers.models.attention_processor import USE_PEFT_BACKEND
+
 
 def register_attention_control_diffusers(model, controller, transform_coords = None):
     

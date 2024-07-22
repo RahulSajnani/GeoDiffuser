@@ -1,5 +1,39 @@
 import torch
 from GeoDiffuser.utils.generic import log_args
+from diffusers import StableDiffusionPipeline, DDIMScheduler, DDIMInverseScheduler, StableDiffusionXLPipeline, UNet2DConditionModel
+from diffusers.models import AutoencoderKL
+from GeoDiffuser.utils.attention_processors import *
+from GeoDiffuser.utils.warp_utils import RasterizePointsXYsBlending
+
+# USE_PEFT_BACKEND = False
+# UNCOND_TEXT="pixelated, unclear, blurry, grainy"
+UNCOND_TEXT=""
+MY_TOKEN = ''
+
+# DIFFUSION_MODEL = "runwayml/stable-diffusion-v1-5"
+DIFFUSION_MODEL = "CompVis/stable-diffusion-v1-4"
+# DIFFUSION_MODEL = "stabilityai/stable-diffusion-2-1-base"
+# DIFFUSION_MODEL = "stabilityai/stable-diffusion-2-base"
+# DIFFUSION_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+
+
+LOW_RESOURCE = False 
+NUM_DDIM_STEPS = 50
+GUIDANCE_SCALE = 4.0
+MAX_NUM_WORDS = 77
+IMAGE_SIZE = 512
+SKIP_OPTIM_STEPS = 0
+SEED = 1234
+DEVICE = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+MODE="bilinear"
+SPLATTER = RasterizePointsXYsBlending()
+
+LDM_STABLE = None
+SCHEDULER = None
+TOKENIZER = None
+UNET_NAME = None
+PROGRESS_BAR = None
+
 
 @torch.autocast("cuda", dtype=torch.half)
 def diffusion_step(model, controller, latents, context, t, guidance_scale, low_resource=False, transform_coords=None, use_cfg=True, return_noise = False):

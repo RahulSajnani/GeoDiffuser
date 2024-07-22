@@ -1,4 +1,9 @@
 import torch
+from PIL import Image
+from typing import Optional, Union, Tuple, List, Callable, Dict
+import numpy as np
+from diffusers import DDIMScheduler, DDIMInverseScheduler
+from GeoDiffuser.utils.attention_processors import *
 
 
 class NullInversion:
@@ -29,7 +34,7 @@ class NullInversion:
             noise_pred_cond = self.get_noise_pred_single(latent_cur_t, t, cond_embeddings)
 
         noise_pred_uncond = self.get_noise_pred_single(latent_cur_t, t, uncond_embeddings)
-        noise_pred = noise_pred_uncond + GUIDANCE_SCALE * (noise_pred_cond - noise_pred_uncond)
+        noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_cond - noise_pred_uncond)
         latents_prev_rec_t = self.prev_step(noise_pred, t, latent_cur_t)
         latent_prev_t = latent_prev_t * mask_content + (1.0 - mask_content) * noise_pred * (1 - alpha_prod_t) ** 0.5
         
@@ -69,7 +74,7 @@ class NullInversion:
         latents_input = torch.cat([latents] * 2)
         if context is None:
             context = self.context
-        guidance_scale = 1 if is_forward else GUIDANCE_SCALE
+        guidance_scale = 1 if is_forward else self.guidance_scale
         noise_pred = self.model.unet(latents_input, t, encoder_hidden_states=context)["sample"]
         noise_pred_uncond, noise_prediction_text = noise_pred.chunk(2)
         noise_pred = noise_pred_uncond + guidance_scale * (noise_prediction_text - noise_pred_uncond)
@@ -99,7 +104,7 @@ class NullInversion:
                 latents = image
             else:
                 image = torch.from_numpy(image).float() / 127.5 - 1
-                image = image.permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+                image = image.permute(2, 0, 1).unsqueeze(0).to(self.device)
                 latents = self.model.vae.encode(image)['latent_dist'].mean
                 latents = latents * self.model.vae.config.scaling_factor
         return latents
@@ -107,7 +112,7 @@ class NullInversion:
     @torch.no_grad()
     def init_prompt(self, prompt: str):
         uncond_input = self.model.tokenizer(
-            [UNCOND_TEXT], padding="max_length", max_length=self.model.tokenizer.model_max_length,
+            [self.uncond_text], padding="max_length", max_length=self.model.tokenizer.model_max_length,
             return_tensors="pt"
         )
         uncond_embeddings = self.model.text_encoder(uncond_input.input_ids.to(self.model.device))[0]
@@ -140,9 +145,9 @@ class NullInversion:
         # inverse_scheduler = DDIMInverseScheduler.from_pretrained(DIFFUSION_MODEL, subfolder='scheduler', beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False, steps_offset=0)#, timestep_spacing = "leading")
 
 
-        # timesteps, num_inference_steps = self.model.retrieve_timesteps(inverse_scheduler, NUM_DDIM_STEPS, DEVICE, None)
+        # timesteps, num_inference_steps = self.model.retrieve_timesteps(inverse_scheduler, self.num_ddim_steps, self.device, None)
 
-        inverse_scheduler.set_timesteps(NUM_DDIM_STEPS, device=DEVICE)
+        inverse_scheduler.set_timesteps(self.num_ddim_steps, device=self.device)
         timesteps = inverse_scheduler.timesteps
         # timesteps = self.model.scheduler.timesteps
         latents = latent
@@ -155,11 +160,11 @@ class NullInversion:
             context_in = torch.cat([uncond_e, uncond_e, cond_e, cond_e], 0)
         # num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         # self._num_timesteps = len(timesteps)
-        with self.model.progress_bar(total=NUM_DDIM_STEPS) as progress_bar:
+        with self.model.progress_bar(total=self.num_ddim_steps) as progress_bar:
             for i, t in enumerate(timesteps):
 
-                if PROGRESS_BAR is not None:
-                    PROGRESS_BAR(i / NUM_DDIM_STEPS, desc="Performing DDIM Inversion")
+                if self.progress_bar is not None:
+                    self.progress_bar(i / self.num_ddim_steps, desc="Performing DDIM Inversion")
 
                 
 
@@ -179,7 +184,7 @@ class NullInversion:
 
                 noise_pred_uncond, noise_pred_cond = noise_pred.chunk(2)
 
-                noise_pred = noise_pred_uncond + GUIDANCE_SCALE * (noise_pred_cond - noise_pred_uncond)
+                noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_cond - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
                 latents = inverse_scheduler.step(noise_pred, t, latents, return_dict=False)[0]
@@ -209,10 +214,10 @@ class NullInversion:
         uncond_embeddings, cond_embeddings = self.context.chunk(2)
         uncond_embeddings_list = []
         latent_cur = latents[-1]
-        bar = tqdm(total=num_inner_steps * NUM_DDIM_STEPS)
+        bar = tqdm(total=num_inner_steps * self.num_ddim_steps)
 
         with torch.enable_grad():
-            for i in range(NUM_DDIM_STEPS):
+            for i in range(self.num_ddim_steps):
                 uncond_embeddings = uncond_embeddings.clone().detach()
                 uncond_embeddings.requires_grad = True
                 optimizer = Adam([uncond_embeddings], lr=1e-2 * (1. - i / 100.))
@@ -224,7 +229,7 @@ class NullInversion:
 
                     noise_pred_uncond = self.get_noise_pred_single(latent_cur, t, uncond_embeddings)
                     
-                    noise_pred = noise_pred_uncond + GUIDANCE_SCALE * (noise_pred_cond - noise_pred_uncond)
+                    noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_cond - noise_pred_uncond)
                     latents_prev_rec = self.prev_step(noise_pred, t, latent_cur)
                     
     #                 if 1:
@@ -272,12 +277,18 @@ class NullInversion:
         return (image_gt, image_rec), ddim_latents[-1], uncond_embeddings, ddim_latents, ddim_noise
         
     
-    def __init__(self, model):
+    def __init__(self, model, num_ddim_steps = 50, uncond_text = "", device="cuda:0", progress_bar = None, guidance_scale = 3.0):
+        self.guidance_scale = guidance_scale
+        self.progress_bar = progress_bar
+        self.device = device
+        self.num_ddim_steps = num_ddim_steps
+        self.uncond_text = uncond_text
         scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False,
                                   set_alpha_to_one=False)
         self.model = model
         self.tokenizer = self.model.tokenizer
-        self.model.scheduler.set_timesteps(NUM_DDIM_STEPS)
+        self.model.scheduler.set_timesteps(self.num_ddim_steps)
         self.prompt = None
         self.context = None
         self.controller = None
+        

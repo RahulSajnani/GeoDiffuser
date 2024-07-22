@@ -3,7 +3,7 @@ import torch
 import torchvision.transforms as T
 import os
 import torch.nn.functional as F
-from util.warp_utils import RasterizePointsXYsBlending, GaussianSmoothing
+from GeoDiffuser.utils.warp_utils import RasterizePointsXYsBlending, GaussianSmoothing
 
 
 def norm_tensor(A, eps = 1e-12):

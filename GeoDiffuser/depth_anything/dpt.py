@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
-from depth_anything.blocks import FeatureFusionBlock, _make_scratch
+from .blocks import FeatureFusionBlock, _make_scratch
 
 
 def _make_fusion_block(features, use_bn, size = None):
