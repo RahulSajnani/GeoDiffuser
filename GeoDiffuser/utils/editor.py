@@ -15,6 +15,28 @@ from diffusers import StableDiffusionPipeline, DDIMScheduler, DDIMInverseSchedul
 from GeoDiffuser.utils.warp_utils import RasterizePointsXYsBlending
 from GeoDiffuser.utils import warp_utils, vis_utils
 from GeoDiffuser.utils.inversion import NullInversion
+from GeoDiffuser.utils.generic_torch import *
+from GeoDiffuser.utils.diffusion import image2latent, latent2image, diffusion_step, load_model
+# from GeoDiffuser.utils.attention_ import *
+from GeoDiffuser.utils.attention_processors import *
+from GeoDiffuser.utils.generic import *
+from tqdm import tqdm
+from GeoDiffuser.utils.optimization import _update_latent, adaptive_optimization_step_editing, adaptive_optimization_step_remover, adaptive_optimization_step_stitching
+from GeoDiffuser.utils.image_processing import *
+
+# USE_PEFT_BACKEND = False
+# UNCOND_TEXT="pixelated, unclear, blurry, grainy"
+
+UNCOND_TEXT=""
+MY_TOKEN = ''
+
+# DIFFUSION_MODEL = "runwayml/stable-diffusion-v1-5"
+DIFFUSION_MODEL = "CompVis/stable-diffusion-v1-4"
+# DIFFUSION_MODEL = "stabilityai/stable-diffusion-2-1-base"
+# DIFFUSION_MODEL = "stabilityai/stable-diffusion-2-base"
+# DIFFUSION_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+
+
 
 LOW_RESOURCE = False 
 NUM_DDIM_STEPS = 50
@@ -27,12 +49,17 @@ DEVICE = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('
 MODE="bilinear"
 SPLATTER = RasterizePointsXYsBlending()
 
-UNCOND_TEXT = ""
 LDM_STABLE = None
 SCHEDULER = None
 TOKENIZER = None
 UNET_NAME = None
 PROGRESS_BAR = None
+# DIFFUSION_MODEL = "runwayml/stable-diffusion-v1-5"
+DIFFUSION_MODEL = "CompVis/stable-diffusion-v1-4"
+# DIFFUSION_MODEL = "stabilityai/stable-diffusion-2-1-base"
+# DIFFUSION_MODEL = "stabilityai/stable-diffusion-2-base"
+# DIFFUSION_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+
 
 @torch.no_grad()
 def text2image_ldm_stable(
@@ -252,11 +279,11 @@ def text2image_ldm_stable(
                         if use_adaptive_optimization:
                             print("[INFO]: Using Adaptive Optimization")
                             if edit_type == "geometry_editor":
-                                adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss_log_dict)
+                                adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps = NUM_DDIM_STEPS)
                             elif edit_type == "geometry_stitch":
-                                adaptive_optimization_step_stitching(controller, i, skip_optim_steps, out_loss_log_dict)
+                                adaptive_optimization_step_stitching(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps = NUM_DDIM_STEPS)
                             elif edit_type == "geometry_remover":
-                                adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss_log_dict)
+                                adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps = NUM_DDIM_STEPS)
                         else:
                             print("[INFO]: Not Using Adaptive Optimization Results may not be optimal")
 
@@ -526,7 +553,7 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
         
 
     elif (ldm_stable is None) or (tokenizer is None) or (scheduler is None):
-        ldm_stable, tokenizer, scheduler = load_model(unet_path)
+        ldm_stable, tokenizer, scheduler = load_model(diffusion_model = DIFFUSION_MODEL, unet_path = unet_path, device = DEVICE)
 
     else:
         print("No model loading required")
@@ -546,7 +573,6 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
     (image_gt, image_enc), x_t, uncond_embeddings, ddim_latents, ddim_noise = null_inversion.invert(image, prompt, offsets=(0,0,0,0), verbose=True, perform_inversion = perform_inversion, image_2 = image_stitch)
     print("inversion done!")
 
-    exit()
 
 
 
@@ -567,10 +593,10 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
 
     if edit_type == "geometry_editor":
         controller = AttentionGeometryEdit(prompts, NUM_DDIM_STEPS, cross_replace_steps=cross_replace_steps,
-                                        self_replace_steps=self_replace_steps, equalizer=None, local_blend=None, controller=None, image_mask=image_mask.detach().cpu().numpy(), empty_scale = 0.0, use_all = False, obj_edit_step = obj_edit_step)
+                                        self_replace_steps=self_replace_steps, equalizer=None, local_blend=None, controller=None, image_mask=image_mask.detach().cpu().numpy(), empty_scale = 0.0, use_all = False, obj_edit_step = obj_edit_step, tokenizer = tokenizer, device = DEVICE, mode = MODE)
     elif edit_type == "geometry_remover":
         controller = AttentionGeometryRemover(prompts, NUM_DDIM_STEPS, cross_replace_steps=cross_replace_steps,
-                                        self_replace_steps=self_replace_steps, equalizer=None, local_blend=None, controller=None, image_mask=image_mask.detach().cpu().numpy(), empty_scale = 0.0, use_all = False, obj_edit_step = obj_edit_step)
+                                        self_replace_steps=self_replace_steps, equalizer=None, local_blend=None, controller=None, image_mask=image_mask.detach().cpu().numpy(), empty_scale = 0.0, use_all = False, obj_edit_step = obj_edit_step, tokenizer = tokenizer, device = DEVICE, mode = MODE)
     
     elif edit_type == "geometry_stitch":
         controller = AttentionGeometryStitch(prompts, NUM_DDIM_STEPS, cross_replace_steps=cross_replace_steps,

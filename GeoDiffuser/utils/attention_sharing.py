@@ -7,6 +7,8 @@ import abc
 from GeoDiffuser.utils.generic_torch import reshape_transform_coords, reshape_attention_mask
 # from GeoDiffuser.inversion import NullInversion
 
+
+LOW_RESOURCE = False
 def perform_attention(q, k, v, scale, mask=None):
 
     with torch.backends.cuda.sdp_kernel(enable_math=False, enable_mem_efficient=True, enable_flash=True):

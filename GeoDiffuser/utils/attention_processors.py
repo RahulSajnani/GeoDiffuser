@@ -2,7 +2,15 @@ import torch
 import abc
 from typing import Optional, Union, Tuple, List, Callable, Dict
 from GeoDiffuser.utils.attention_sharing import *
+from GeoDiffuser.utils.ptp_utils import *
+from GeoDiffuser.utils.generic_torch import *
+from GeoDiffuser.utils.warp_utils import *
+from GeoDiffuser.utils.loss import *
+import GeoDiffuser.utils.vis_utils as vis_utils
 from diffusers.models.attention_processor import USE_PEFT_BACKEND
+
+
+DISTANCE_CLASS = CoordinateDistances()
 
 
 def register_attention_control_diffusers(model, controller, transform_coords = None):
@@ -228,7 +236,7 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         t_coords_m = reshape_transform_coords(transform_coords, in_mat_shape=self.image_mask.shape).tile(self.image_mask.shape[0], 1, 1, 1).type_as(q_base)
         
         if self.mask_new_warped is None:
-            mask_new_warped = binarize_tensor(warp_grid_edit(self.image_mask[:, None], t_coords_m, padding_mode='zeros', align_corners=True, mode=MODE))
+            mask_new_warped = binarize_tensor(warp_grid_edit(self.image_mask[:, None], t_coords_m, padding_mode='zeros', align_corners=True, mode=self.mode))
             self.mask_new_warped = mask_new_warped.detach()
         else:
             mask_new_warped = self.mask_new_warped.detach()
@@ -286,7 +294,7 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         t_coords_q = reshape_transform_coords(transform_coords, in_mat_shape=q_edit_base.shape).tile(q_edit_base.shape[0], 1, 1, 1).type_as(q_edit_base)
         
         # Transform locations
-        q_edit_base = q_edit_base * (1.0 - mask_new_warped) + mask_new_warped * warp_grid_edit(q_edit_base, t_coords_q, padding_mode='zeros', align_corners=True, mode=MODE)
+        q_edit_base = q_edit_base * (1.0 - mask_new_warped) + mask_new_warped * warp_grid_edit(q_edit_base, t_coords_q, padding_mode='zeros', align_corners=True, mode=self.mode)
         
         q_edit_base = q_edit_base.reshape(b, f, D, h, w).reshape(b, f, D, -1).permute(0, 1, -1, 2).reshape(-1, h*w, D)
 
@@ -479,7 +487,7 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         
 
         if self.mask_new_warped is None:
-            mask_new_warped = binarize_tensor(warp_grid_edit(self.image_mask[:, None], t_coords_m, padding_mode='zeros', align_corners=True, mode=MODE))
+            mask_new_warped = binarize_tensor(warp_grid_edit(self.image_mask[:, None], t_coords_m, padding_mode='zeros', align_corners=True, mode=self.mode))
             self.mask_new_warped = mask_new_warped.detach()
 
         else:
@@ -528,7 +536,7 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         t_coords_q = reshape_transform_coords(transform_coords, in_mat_shape=q_edit_base.shape).tile(q_edit_base.shape[0], 1, 1, 1).type_as(q_edit_base)
         
         # Transform locations
-        q_edit_base = q_edit_base * (1.0 - mask_new_warped) + mask_new_warped * warp_grid_edit(q_edit_base, t_coords_q, padding_mode='zeros', align_corners=True, mode=MODE)
+        q_edit_base = q_edit_base * (1.0 - mask_new_warped) + mask_new_warped * warp_grid_edit(q_edit_base, t_coords_q, padding_mode='zeros', align_corners=True, mode=self.mode)
         
         q_edit_base = q_edit_base.reshape(b, f, D, h, w).reshape(b, f, D, -1).permute(0, 1, -1, 2).reshape(-1, h*w, D)
         
@@ -789,11 +797,14 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
     #     self.default
 
     def __init__(self, prompts, num_steps: int, cross_replace_steps: float, self_replace_steps: float, equalizer = None,
-                local_blend = None, controller = None, image_mask = None, empty_scale = 0.2, use_all = True, obj_edit_step = 0.0):
+                local_blend = None, controller = None, image_mask = None, empty_scale = 0.2, use_all = True, obj_edit_step = 0.0, tokenizer = None, device = "cuda:0", mode="bilinear"):
         super(AttentionGeometryEdit, self).__init__()
+
+
+        self.mode = mode
         if equalizer is not None:
             eq = get_equalizer(prompts[1], equalizer["words"], equalizer["values"])
-            self.equalizer = eq.to(DEVICE)
+            self.equalizer = eq.to(device)
         self.prev_controller = controller
         self.last_cross_mask = None
         
@@ -808,7 +819,7 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         self.loss = 0.0
 
         self.batch_size = len(prompts)
-        self.cross_replace_alpha = ptp_utils.get_time_words_attention_alpha(prompts, num_steps, cross_replace_steps, tokenizer).to(DEVICE)
+        self.cross_replace_alpha = get_time_words_attention_alpha(prompts, num_steps, cross_replace_steps, tokenizer).to(device)
         if type(self_replace_steps) is float:
             self_replace_steps = 0, self_replace_steps
         self.num_self_replace = int(num_steps * self_replace_steps[0]), int(num_steps * self_replace_steps[1])
@@ -1165,11 +1176,13 @@ class AttentionGeometryRemover(AttentionStore, abc.ABC):
 
 
     def __init__(self, prompts, num_steps: int, cross_replace_steps: float, self_replace_steps: float, equalizer = None,
-                local_blend = None, controller = None, image_mask = None, empty_scale = 0.2, use_all = True, obj_edit_step = 0.0):
+                local_blend = None, controller = None, image_mask = None, empty_scale = 0.2, use_all = True, obj_edit_step = 0.0, tokenizer = None, device = "cuda:0", mode = "bilinear"):
         super(AttentionGeometryRemover, self).__init__()
+
+        self.mode = mode
         if equalizer is not None:
             eq = get_equalizer(prompts[1], equalizer["words"], equalizer["values"])
-            self.equalizer = eq.to(DEVICE)
+            self.equalizer = eq.to(device)
         self.prev_controller = controller
         self.last_cross_mask = None
         
@@ -1183,7 +1196,7 @@ class AttentionGeometryRemover(AttentionStore, abc.ABC):
         self.loss = 0.0
 
         self.batch_size = len(prompts)
-        self.cross_replace_alpha = ptp_utils.get_time_words_attention_alpha(prompts, num_steps, cross_replace_steps, tokenizer).to(DEVICE)
+        self.cross_replace_alpha = get_time_words_attention_alpha(prompts, num_steps, cross_replace_steps, tokenizer).to(device)
         if type(self_replace_steps) is float:
             self_replace_steps = 0, self_replace_steps
         self.num_self_replace = int(num_steps * self_replace_steps[0]), int(num_steps * self_replace_steps[1])

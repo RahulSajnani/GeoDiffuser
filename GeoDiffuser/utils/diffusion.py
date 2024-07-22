@@ -7,32 +7,33 @@ from GeoDiffuser.utils.warp_utils import RasterizePointsXYsBlending
 
 # USE_PEFT_BACKEND = False
 # UNCOND_TEXT="pixelated, unclear, blurry, grainy"
-UNCOND_TEXT=""
-MY_TOKEN = ''
 
-# DIFFUSION_MODEL = "runwayml/stable-diffusion-v1-5"
-DIFFUSION_MODEL = "CompVis/stable-diffusion-v1-4"
-# DIFFUSION_MODEL = "stabilityai/stable-diffusion-2-1-base"
-# DIFFUSION_MODEL = "stabilityai/stable-diffusion-2-base"
-# DIFFUSION_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+# UNCOND_TEXT=""
+# MY_TOKEN = ''
+
+# # DIFFUSION_MODEL = "runwayml/stable-diffusion-v1-5"
+# DIFFUSION_MODEL = "CompVis/stable-diffusion-v1-4"
+# # DIFFUSION_MODEL = "stabilityai/stable-diffusion-2-1-base"
+# # DIFFUSION_MODEL = "stabilityai/stable-diffusion-2-base"
+# # DIFFUSION_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
 
 
-LOW_RESOURCE = False 
-NUM_DDIM_STEPS = 50
-GUIDANCE_SCALE = 4.0
-MAX_NUM_WORDS = 77
-IMAGE_SIZE = 512
-SKIP_OPTIM_STEPS = 0
-SEED = 1234
-DEVICE = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-MODE="bilinear"
-SPLATTER = RasterizePointsXYsBlending()
+# LOW_RESOURCE = False 
+# NUM_DDIM_STEPS = 50
+# GUIDANCE_SCALE = 4.0
+# MAX_NUM_WORDS = 77
+# IMAGE_SIZE = 512
+# SKIP_OPTIM_STEPS = 0
+# SEED = 1234
+# device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+# MODE="bilinear"
+# SPLATTER = RasterizePointsXYsBlending()
 
-LDM_STABLE = None
-SCHEDULER = None
-TOKENIZER = None
-UNET_NAME = None
-PROGRESS_BAR = None
+# LDM_STABLE = None
+# SCHEDULER = None
+# TOKENIZER = None
+# UNET_NAME = None
+# PROGRESS_BAR = None
 
 
 @torch.autocast("cuda", dtype=torch.half)
@@ -67,7 +68,7 @@ def latent2image(vae, latents):
     return image
 
 # @torch.no_grad()
-def image2latent(image, model, mask = None):
+def image2latent(image, model, mask = None, device = "cuda:0"):
     with torch.no_grad():
         if type(image) is Image:
             image = np.array(image)
@@ -81,27 +82,27 @@ def image2latent(image, model, mask = None):
                 if type(mask) is np.ndarray:
                     mask_in = torch.from_numpy(mask).float()
                     image = image * (mask_in[..., None] < 0.5)
-                    image = image.permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+                    image = image.permute(2, 0, 1).unsqueeze(0).to(device)
                 else:
                     mask_in = mask
-                    image = image.permute(2, 0, 1).unsqueeze(0).to(DEVICE).tile(mask.shape[0], 1, 1, 1)
-                    image = image * (mask_in < 0.5).to(DEVICE)
+                    image = image.permute(2, 0, 1).unsqueeze(0).to(device).tile(mask.shape[0], 1, 1, 1)
+                    image = image * (mask_in < 0.5).to(device)
                     
             else:
-                image = image.permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+                image = image.permute(2, 0, 1).unsqueeze(0).to(device)
                  
             
             latents = model.vae.encode(image)['latent_dist'].mean
             latents = latents * 0.18215
     return latents
 
-def load_model(unet_path = ""):
+def load_model(diffusion_model, unet_path = "", device = "cuda:0"):
 
     global UNET_NAME
 
     data_type = torch.half
-    # ldm_stable = StableDiffusionXLPipeline.from_pretrained(DIFFUSION_MODEL, use_auth_token=MY_TOKEN, torch_dtype=torch.half).to(DEVICE)
-    ldm_stable = StableDiffusionPipeline.from_pretrained(DIFFUSION_MODEL, use_auth_token=MY_TOKEN, torch_dtype=torch.half).to(DEVICE)
+    # ldm_stable = StableDiffusionXLPipeline.from_pretrained(DIFFUSION_MODEL, torch_dtype=torch.half).to(device)
+    ldm_stable = StableDiffusionPipeline.from_pretrained(diffusion_model, torch_dtype=torch.half).to(device)
     # print(ldm_stable.scheduler.config)
     # scheduler = DDIMScheduler.from_pretrained(DIFFUSION_MODEL, subfolder='scheduler', beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False)
     scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", clip_sample=False, set_alpha_to_one=False)
@@ -109,9 +110,9 @@ def load_model(unet_path = ""):
     # variant="fp16"
     ldm_stable.scheduler = scheduler
     
-    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+    # device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
 
-    # ldm_stable = StableDiffusionPipeline.from_pretrained(DIFFUSION_MODEL, use_auth_token=MY_TOKEN, scheduler=scheduler).to(DEVICE)
+    # ldm_stable = StableDiffusionPipeline.from_pretrained(DIFFUSION_MODEL, scheduler=scheduler).to(device)
     try:
         ldm_stable.disable_xformers_memory_efficient_attention()
     except AttributeError:
@@ -120,17 +121,17 @@ def load_model(unet_path = ""):
     
     ldm_stable.unet.set_attn_processor(VanillaAttentionProcessor())
     
-    if DIFFUSION_MODEL.split("-")[-2] == "v1":
+    if diffusion_model.split("-")[-2] == "v1":
         print("[INFO]: Using Updated vae")
-        ldm_stable.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse", torch_dtype=torch.half).to(DEVICE).eval()
+        ldm_stable.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse", torch_dtype=torch.half).to(device).eval()
 
     # ldm_stable.vae.set_attn_processor(diffusers.models.attention_processor.AttnProcessor())
 
-    UNET_NAME = DIFFUSION_MODEL
+    UNET_NAME = diffusion_model
     if unet_path != "":
         print("[INFO]: Loading UNET model from path: ", unet_path)
         ldm_stable.unet = UNet2DConditionModel.from_pretrained(
-        unet_path, subfolder="unet", torch_dtype=data_type).to(DEVICE)
+        unet_path, subfolder="unet", torch_dtype=data_type).to(device)
         UNET_NAME = unet_path
     
     # ldm_stable.unet = torch.compile(ldm_stable.unet, mode = "reduce-overhead")

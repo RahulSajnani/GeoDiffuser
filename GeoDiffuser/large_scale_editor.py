@@ -134,13 +134,13 @@ def perform_exp(exp_dict, prompt = "", ldm_stable_model = None, tokenizer_model 
         splatting_points_per_pixel = 15
         guidance_scale = 3.0
 
-        cross_replace_steps = {'default_': 0.95}
-        self_replace_steps = 0.95
+        cross_replace_steps = {'default_': 0.97}
+        self_replace_steps = 0.97
         obj_edit_step = 0.6
         # lr = 0.01
 
 
-    use_adaptive_optimization = False
+    use_adaptive_optimization = True
     step_store = None
 
     # print(loss_weights_dict)
@@ -312,7 +312,8 @@ def run_exp_on_folder_single(exp_folder, exp_type, ldm_stable, tokenizer, schedu
 
 if __name__=="__main__":
 
-    ldm_stable, tokenizer, scheduler = diffusion.load_model()
+    ldm_stable, tokenizer, scheduler = None, None, None
+    # ldm_stable, tokenizer, scheduler = diffusion.load_model()
 
     # exp_type = "geometry_stitch"
     # exp_root_folder = "./ui_outputs/stitching/"

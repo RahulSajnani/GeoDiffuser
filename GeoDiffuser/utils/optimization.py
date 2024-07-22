@@ -3,12 +3,12 @@ import torch
 
 
 
-def adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss_log_dict):
+def adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps):
 
 
 
-    if (i / NUM_DDIM_STEPS) < 0.4:
-        remaining_steps = int((0.4 - (i / NUM_DDIM_STEPS)) * NUM_DDIM_STEPS / skip_optim_steps)
+    if (i / num_ddim_steps) < 0.4:
+        remaining_steps = int((0.4 - (i / num_ddim_steps)) * num_ddim_steps / skip_optim_steps)
         expected_removal_loss_value = -1.5 / (1.25)**(remaining_steps)
         expected_movement_loss_value = 0.4 / (1.1)**(remaining_steps)
 
@@ -42,7 +42,7 @@ def adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss
             controller.loss_weight_dict["self"]["removal"] /= 2.0
             # print(controller.loss_weight_dict)
         
-    elif ((i / NUM_DDIM_STEPS) > 0.4) and ((i / NUM_DDIM_STEPS) < 0.8):
+    elif ((i / num_ddim_steps) > 0.4) and ((i / num_ddim_steps) < 0.8):
 
         if (-1.8 < out_loss_log_dict["self"]["removal"]):
             controller.loss_weight_dict["self"]["removal"] *= 2.0
@@ -53,12 +53,12 @@ def adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss
         controller.initialize_default_loss_weights()
         # print("reinitialized controller loss weights: ", controller.loss_weight_dict)
 
-def adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss_log_dict):
+def adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps):
 
 
 
-    if (i / NUM_DDIM_STEPS) < 0.4:
-        remaining_steps = int((0.4 - (i / NUM_DDIM_STEPS)) * NUM_DDIM_STEPS / skip_optim_steps)
+    if (i / num_ddim_steps) < 0.4:
+        remaining_steps = int((0.4 - (i / num_ddim_steps)) * num_ddim_steps / skip_optim_steps)
         expected_removal_loss_value = -1.5 / (1.25)**(remaining_steps)
         expected_movement_loss_value = 0.4 / (1.1)**(remaining_steps)
 
@@ -90,7 +90,7 @@ def adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss
             controller.loss_weight_dict["self"]["removal"] /= 2.5
             # print(controller.loss_weight_dict)
         
-    elif ((i / NUM_DDIM_STEPS) > 0.4) and ((i / NUM_DDIM_STEPS) < 0.8):
+    elif ((i / num_ddim_steps) > 0.4) and ((i / num_ddim_steps) < 0.8):
 
         if (-1.8 < out_loss_log_dict["self"]["removal"]):
             controller.loss_weight_dict["self"]["removal"] *= 2.0
@@ -103,17 +103,17 @@ def adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss
 
 
 
-def adaptive_optimization_step_stitching(controller, i, skip_optim_steps, out_loss_log_dict):
+def adaptive_optimization_step_stitching(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps):
 
 
-    # if (i / NUM_DDIM_STEPS) > 0.4 and ((i / NUM_DDIM_STEPS) < 0.45):
+    # if (i / num_ddim_steps) > 0.4 and ((i / num_ddim_steps) < 0.45):
     #     controller.loss_weight_dict["self"]["sim_out"] /= 1.5
     #     controller.loss_weight_dict["cross"]["sim_out"] /= 1.5
     #     print("Reducing sim loss")
     
     # return
-    if (i / NUM_DDIM_STEPS) < 0.4:
-        remaining_steps = int((0.4 - (i / NUM_DDIM_STEPS)) * NUM_DDIM_STEPS / skip_optim_steps)
+    if (i / num_ddim_steps) < 0.4:
+        remaining_steps = int((0.4 - (i / num_ddim_steps)) * num_ddim_steps / skip_optim_steps)
         expected_sim_loss_value = 0.18 / (1.01)**(remaining_steps)
         # expected_movement_loss_value = 0.4 / (1.1)**(remaining_steps)
 
@@ -147,7 +147,7 @@ def adaptive_optimization_step_stitching(controller, i, skip_optim_steps, out_lo
             controller.loss_weight_dict["self"]["sim_out"] /= 2.5
             # print(controller.loss_weight_dict)
         
-    elif ((i / NUM_DDIM_STEPS) > 0.4) and ((i / NUM_DDIM_STEPS) < 0.7):
+    elif ((i / num_ddim_steps) > 0.4) and ((i / num_ddim_steps) < 0.7):
 
         if (0.2 < out_loss_log_dict["self"]["sim_out"]):
             controller.loss_weight_dict["self"]["sim_out"] *= 1.1
