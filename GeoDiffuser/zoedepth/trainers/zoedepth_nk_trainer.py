@@ -26,9 +26,9 @@ import torch
 import torch.cuda.amp as amp
 import torch.nn as nn
 
-from zoedepth.trainers.loss import GradL1Loss, SILogLoss
-from zoedepth.utils.config import DATASETS_CONFIG
-from zoedepth.utils.misc import compute_metrics
+from GeoDiffuser.zoedepth.trainers.loss import GradL1Loss, SILogLoss
+from GeoDiffuser.zoedepth.utils.config import DATASETS_CONFIG
+from GeoDiffuser.zoedepth.utils.misc import compute_metrics
 
 from .base_trainer import BaseTrainer
 

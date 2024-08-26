@@ -42,7 +42,7 @@ def get_trainer(config):
         config)
     try:
         Trainer = getattr(import_module(
-            f"zoedepth.trainers.{config.trainer}_trainer"), 'Trainer')
+            f"GeoDiffuser.zoedepth.trainers.{config.trainer}_trainer"), 'Trainer')
     except ModuleNotFoundError as e:
         raise ValueError(f"Trainer {config.trainer}_trainer not found.") from e
     return Trainer

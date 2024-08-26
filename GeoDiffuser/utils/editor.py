@@ -87,6 +87,7 @@ def text2image_ldm_stable(
     num_first_optim_steps = 5,
     use_adaptive_optimization = True,
     adain_latents_steps=0.95,
+    use_optimizer = False,
 ):
 
     global_loss_log_dict = {}
@@ -133,6 +134,7 @@ def text2image_ldm_stable(
 
     context_save = None
     optimizer = None
+    # use_optimizer = True
     first_optim_complete = False
     l_eff = lr * skip_optim_steps * (50 / (NUM_DDIM_STEPS + 1e-8))
     scaler = None
@@ -227,6 +229,10 @@ def text2image_ldm_stable(
                     optimizer.param_groups[0]["params"] = [latents_in, context_in]
                 optimizer.zero_grad(set_to_none=True)
 
+                if not use_optimizer:
+                    optimizer = None
+
+
                 for opt_iter in range(num_optim_steps):
 
                     with torch.enable_grad():
@@ -263,7 +269,7 @@ def text2image_ldm_stable(
                         if edit_type == "geometry_stitch":
                             latents_in, context_new = _update_latent(latents_in, controller.loss, l_eff, controller.mask_new_warped[:1], context_in, scaler = scaler, optimizer = optimizer)
                         else:
-                            latents_in, context_new = _update_latent(latents_in, controller.loss, l_eff, None, context_in, scaler = scaler, optimizer = optimizer)
+                            latents_in, context_new = _update_latent(latents_in, controller.loss, l_eff, controller.mask_new_warped[:1], context_in, scaler = scaler, optimizer = optimizer)
 
                         
                         if num_optim_steps == 1:
@@ -444,6 +450,7 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
     use_adaptive_optimization = True,
     return_attention_maps = False,
     unet_path = "",
+    use_optimizer = True,
     ):
     torch.cuda.empty_cache()
 

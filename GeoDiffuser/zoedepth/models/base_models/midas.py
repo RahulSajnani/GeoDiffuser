@@ -27,7 +27,7 @@ import torch.nn as nn
 import numpy as np
 from torchvision.transforms import Normalize
 # from midas_repo.model_loader import default_models, load_model
-from midas_repo.dpt_depth import DPTDepthModel
+from GeoDiffuser.midas_repo.dpt_depth import DPTDepthModel
 
 
 def denormalize(x):

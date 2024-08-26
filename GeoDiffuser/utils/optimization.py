@@ -1,4 +1,5 @@
 import torch
+from GeoDiffuser.utils.generic_torch import *
 
 
 
@@ -224,7 +225,7 @@ def _update_latent(latents: torch.Tensor, loss: torch.Tensor, step_size: float, 
         if mask is not None:
             mask_inpaint = reshape_attention_mask(mask[None, None].type_as(latents), in_mat_shape = latents[-1:].shape)       
 
-            latents = torch.cat([latents[:-1], latents[-1:].detach() - mask_inpaint[-1:] * step_size * grad_cond[-1:]], 0)
+            latents = torch.cat([latents[:-1], latents[-1:].detach() - 2.0 * mask_inpaint[-1:] * step_size * grad_cond[-1:]], 0)
             latents = torch.cat([latents[:-1], latents[-1:].detach() - (1.0 - mask_inpaint[-1:]) * step_size * grad_cond[-1:]], 0)
 
         # else:
