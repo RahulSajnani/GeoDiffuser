@@ -2,6 +2,7 @@ import torch
 from torch import tensor
 from einops import rearrange
 from .functions import normalize
+from .geodiffuser_reprojection import warp_grid_edit, reshape_transform_coords
 import numpy as np
 import fastcore.all as fc
 import math
@@ -162,6 +163,26 @@ def roll_shape_2(x, mag_direction = (0, 0)):
     move = x.roll(mag, dims=(1,2))
     return move.view(x.shape[0], h*h, x.shape[-1])
 
+
+def perform_geometric_transform(x, t_coords_depth = None, mode = "bilinear"):
+
+    # t_coords_depth, p_image, projected_image_amodal_mask = vis_utils.get_transform_coordinates(image / 255.0, depth, image_mask, transform_in = transform_in, return_mesh=True)
+
+    # print(x.shape, " input")
+    h = w = int(math.sqrt(x.shape[-2]))
+    shape = (x.shape[0], h, h, x.shape[-1])
+    x = x.view(shape)
+
+    t_coords = reshape_transform_coords(t_coords_depth[None].type_as(x), in_mat_shape = x.shape[:-1])
+    t_coords = t_coords.repeat(x.shape[0], 1, 1, 1)
+    # print(h, t_coords.shape, " Coordinates and size ", x.permute(0, -1, 1, 2).shape, x.shape)
+    # exit()
+
+    x_warped = warp_grid_edit(x.permute(0, -1, 1, 2).float(), t_coords.float(), padding_mode='zeros', align_corners=True, mode=mode)
+
+    # print("warping x")
+    x = x_warped.permute(0, 2, 3, 1)
+    return x.view(x.shape[0], h*h, -1)
 
 
 def enlarge(x, scale_factor=1):

@@ -232,6 +232,7 @@ def get_exp_types():
 
 def check_if_exp_root(exp_root_folder, folder_list = None):
 
+    exp_root_folder = complete_path(exp_root_folder)
     if folder_list is None:    
         folder_list = glob.glob(complete_path(exp_root_folder) + "**/")
     
@@ -239,6 +240,7 @@ def check_if_exp_root(exp_root_folder, folder_list = None):
 
 
     for f in folder_list:
+        print(f)
         # print(f.split("/"))
         if f.split("/")[-2] in exp_types:
             return True

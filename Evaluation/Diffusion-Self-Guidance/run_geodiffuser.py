@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from tqdm.auto import tqdm
 from torch.nn import init
 from utils.guidance_functions import *
+from utils.geodiffuser_reprojection import *
 import argparse
 from diffusers import LMSDiscreteScheduler, DDPMScheduler, DDIMScheduler, DPMSolverMultistepScheduler, DDIMInverseScheduler, StableDiffusionPipeline
 from utils import *
@@ -19,7 +20,7 @@ from utils.geodiffuser_data_utils import *
 
 os.environ["HF_HOME"] = "/oscar/scratch/rsajnani/rsajnani/research/.cache/hf"
 
-
+MODE = "bilinear"
 
 
 def safety_checker(clip_input, images, **kwargs):
@@ -95,6 +96,22 @@ def run_self_guidance_folder(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_n
     t_w, t_h = get_geodiff_translation(image, K, depth, transform_mat, mask)
     print(t_w, t_h, exp["path_name"])
 
+
+    image_torch = torch.tensor(image).float()
+    image_mask = mask[..., 0]
+    image_mask_torch = torch.from_numpy(image_mask).type_as(image_torch)
+    depth_torch = torch.from_numpy(depth).type_as(image_torch)
+    transform_mat_torch = torch.from_numpy(transform_mat).type_as(image_torch)
+
+    # print(transform_mat_torch.shape, transform_mat_torch)
+    t_coords_depth, p_image, projected_image_amodal_mask = get_transform_coordinates(image / 255.0, depth, image_mask / 255.0, transform_in = transform_mat_torch, return_mesh=True)
+    # print(t_coords_depth.shape)
+
+
+    t_coords_depth = torch.tensor(t_coords_depth)
+    
+    # image_warped = warp_grid_edit((torch.tensor(image_stitch[None]).permute(0, -1, 1, 2) / 255.0).float(), t_coords_depth[None].float(), padding_mode='zeros', align_corners=True, mode=MODE)
+    # exit()
     
 
 
@@ -111,10 +128,11 @@ def run_self_guidance_folder(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_n
 
 
     # Perform Inversion
-    sd_ori_pipe.scheduler = pipe_noising_scheduler
-    inv_latents, _ = sd_ori_pipe(prompt=prompt, negative_prompt="", guidance_scale=guidance_scale,
-                          output_type='latent', return_dict=False,
-                          num_inference_steps=50, latents=latents)
+
+    # sd_ori_pipe.scheduler = pipe_noising_scheduler
+    # inv_latents, _ = sd_ori_pipe(prompt=prompt, negative_prompt="", guidance_scale=guidance_scale,
+    #                       output_type='latent', return_dict=False,
+    #                       num_inference_steps=50, latents=latents)
 
     # # Reconstruct image
     # sd_ori_pipe.scheduler = pipe_denoising_scheduler
@@ -128,12 +146,12 @@ def run_self_guidance_folder(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_n
     pipe.scheduler = pipe_denoising_scheduler
     
     # Move instruction to move by shape
-    move = partial(roll_shape_2, mag_direction=(t_h, t_w))
+    move = partial(perform_geometric_transform, t_coords_depth = t_coords_depth, mode = MODE )
     # guidance losses and terms
     guidance = partial(move_object_by_shape, shape_weight=0.5, appearance_weight=2.0, position_weight=8, tau=move)
     # perform the edit using diffusion self guidance
     image_list = pipe(prompt, obj_to_edit = object_to_edit, height=512, width=512, 
-                    num_inference_steps=50, generator=generator, latents=inv_latents,
+                    num_inference_steps=50, generator=generator, latents=latents,
             max_guidance_iter_per_step=3, guidance_func=guidance, g_weight=100, guidance_scale=guidance_scale)
 
 
@@ -165,7 +183,7 @@ def run_self_guidance_on_geodiffuser_data(pipe, sd_ori_pipe, pipe_denoising_sche
             folder_list.sort()
 
             exp_cat = f.split("/")[-2]
-            if not (exp_cat == "Translation_2D"):
+            if  (exp_cat == "Removal"):
                 continue
 
             for exp_folder in folder_list:
@@ -194,10 +212,10 @@ if __name__=="__main__":
     pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_noising_scheduler = load_models(args.model_id)
 
 
-    # run_self_guidance_on_geodiffuser_data(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_noising_scheduler, seed=args.seed, exp_root_folder = args.dataset_path)
+    run_self_guidance_on_geodiffuser_data(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_noising_scheduler, seed=args.seed, exp_root_folder = args.dataset_path)
 
 
-    run_self_guidance_folder(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_noising_scheduler, seed=args.seed, dataset_path = args.dataset_path)
+    # run_self_guidance_folder(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_noising_scheduler, seed=args.seed, dataset_path = args.dataset_path)
 
 
 
