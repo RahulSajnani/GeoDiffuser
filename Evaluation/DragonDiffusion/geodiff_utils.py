@@ -1,13 +1,11 @@
-from src.demo.model import DragonModels
 import numpy as np
 import cv2, glob, argparse, os
 import matplotlib.pyplot as plt
-import time
-import os
-import geodiff_utils
-
-os.environ['HF_HOME'] = "/oscar/scratch/rsajnani/rsajnani/research/.cache/hf"
-
+import gradio as gr
+from PIL import Image
+from PIL.ImageOps import exif_transpose
+import PIL
+from copy import deepcopy
 
 def count_folders(directory):
     return len([name for name in os.listdir(directory) if os.path.isdir(os.path.join(directory, name))])
@@ -119,6 +117,8 @@ def project_points_to_3D(im, K, d):
 
 def get_geodiff_translation(im, K, d_in, transform_mat, obj_mask):
 
+    print(transform_mat)
+
     d, mask_d = prepare_depth_for_projection(d_in, obj_mask[..., 0] / 255.0)
 
 
@@ -145,7 +145,7 @@ def get_geodiff_translation(im, K, d_in, transform_mat, obj_mask):
     deviation = np.mean((projected_pts[..., :2] - cam_coords[..., :2])[mask_d >= 0.5], 0)
     
 
-    return deviation
+    return deviation, projected_pts, mask_d, cam_coords
 
 
     # projected_pts = projected_pts[mask_d > 0.5]
@@ -216,9 +216,9 @@ def prepare_depth_for_projection(d, mask_in = None):
         # Normalize depth
         depth = depth / (depth.max() + 1e-8)
 
-        depth[depth > 0.95] = 1000.0
+        depth[depth > 0.95] = 10.0
 
-    mask = (depth < 100.0) * 1.0
+    mask = (depth < 10.0) * 1.0
 
     if obj_mask is not None:
         mask = obj_mask * mask
@@ -275,117 +275,85 @@ def resize_image(image, aspect_ratio):
     # input_img = np.array(Image.fromarray(img).resize((w, h), Image.NEAREST))
     return img
 
-def run_dragon_diffusion_single(exp_folder, dragon_diff_model, exp_cat = "Translation_2D", num_points = 40):
 
+def mask_image(image,
+               mask,
+               color=[255,0,0],
+               alpha=0.5):
+    """ Overlay mask on image for visualization purpose. 
+    Args:
+        image (H, W, 3) or (H, W): input image
+        mask (H, W): mask to be overlaid
+        color: the color of overlaid mask
+        alpha: the transparency of the mask
+    """
+    out = deepcopy(image)
+    img = deepcopy(image)
+    img[mask == 1] = color
+    out = cv2.addWeighted(img, alpha, out, 1-alpha, 0, out)
+    return out
 
-    exp_dict = read_exp(exp_folder)
-    image = exp_dict["input_image_png"]
-    mask = exp_dict["input_mask_png"]
-    depth = exp_dict["depth_npy"]
-    transform_mat = exp_dict["transform_npy"]
-    print(exp_dict["prompt_txt"])
-    K = camera_matrix(550, 550, image.shape[1] / 2.0, image.shape[0] / 2.0)
+def store_img(img, length=512):
+    image, mask = img["image"], np.float32(img["mask"][:, :, 0]) / 255.
+    height,width,_ = image.shape
+    image = Image.fromarray(image)
+    image = exif_transpose(image)
+    image = image.resize((length,int(length*height/width)), PIL.Image.BILINEAR)
+    mask  = cv2.resize(mask, (length,int(length*height/width)), interpolation=cv2.INTER_NEAREST)
+    image = np.array(image)
 
-    # im, K, d_in, transform_mat, obj_mask
-    t_w, t_h = get_geodiff_translation(image, K, depth, transform_mat, mask)
-
-    translation_exp, flow, mask_pts, source_pts = geodiff_utils.get_geodiff_translation(image, K, depth, transform_mat, mask)
-
-
-
-    t_w_e, t_h_e = translation_exp
-
-    source_pts = source_pts[mask_pts >= 0.5, :2]
-    target_pts = flow[mask_pts >= 0.5, :2]
-
-    # get_geodiff_translation()
-
-
-    masked_image = image.copy()
-    masked_image[(mask / 255.0) < 0.5] = 0.5 * masked_image[(mask / 255.0) < 0.5]
-    idx_array = np.random.choice(source_pts.shape[0] - 1, num_points)
-    input_drag_img, selected_points = geodiff_utils.get_points_geodiff(masked_image, source_pts[idx_array].astype(int), target_pts[idx_array].astype(int))
-
-    # plt.imsave("./input_drag.png", input_drag_img)
-
-    print(t_w, t_h, exp_dict["path_name"], t_w_e, t_h_e, selected_points.shape)
-    # exit()
-    w_mean, h_mean=get_mask_center(mask)
-
-    selected_points = [(w_mean, h_mean), (w_mean + t_w, h_mean + t_h)]
-    print(selected_points)
-
-    prompt = exp_dict["prompt_txt"]
-    if prompt is None:
-        prompt = ""
-
-    s_time = time.perf_counter()
-
-    # run_move(self, original_image, mask, mask_ref, prompt, resize_scale, w_edit, w_content, w_contrast, w_inpaint, seed, selected_points, guidance_scale, energy_scale, max_resolution, SDE_strength, ip_scale=None):
-
-
-    # def run_drag(self, original_image, mask, prompt, w_edit, w_content, w_inpaint, seed, selected_points, guidance_scale, energy_scale, max_resolution, SDE_strength, ip_scale=None):
-
-    if exp_cat != "Translation_2D":
-        print("[INFO]: Running Drag")
-        output_image = dragon_diff_model.run_drag(original_image=image, mask=mask, prompt=prompt, w_edit=4, w_content=6, w_inpaint=5.0, seed=42, selected_points=selected_points, guidance_scale=4, energy_scale=0.5, max_resolution=768, SDE_strength = 0.4, ip_scale=0.1)
+    if mask.sum() > 0:
+        mask = np.uint8(mask > 0)
+        masked_img = mask_image(image, 1 - mask, color=[0, 0, 0], alpha=0.3)
     else:
-        print("[INFO]: Running Move")
-        output_image = dragon_diff_model.run_move(original_image=image, mask=mask, mask_ref=None, prompt=prompt, resize_scale=1.0, w_edit=4, w_content=6, w_contrast=0.2, w_inpaint=5.0, seed=42, selected_points=selected_points, guidance_scale=4, energy_scale=0.5, max_resolution=768, SDE_strength = 0.4, ip_scale=0.1)
-    e_time = time.perf_counter()
-
-    print("Edit time (s): ", e_time - s_time)
-    # exit()
-    # print(type(output_image))
-
-    d_path = complete_path(exp_dict["path_name"]) + "dragon_diffusion/"
-
-    output_image[0] = resize_image(output_image[0], exp_dict["image_shape_npy"])
-    print(output_image[0].shape)
-    create_folder(d_path)
-    plt.imsave(d_path + "result_dragon_diffusion.png", output_image[0])
-    plt.imsave(d_path + "input_drag_image.png", input_drag_img)
-    # plt.imsave("./test.png", output_image[0])
-    # exit()
-    pass
-
-def run_geodiff(exp_root_folder, dragon_diff_model):
-
-    folder_list = glob.glob(complete_path(exp_root_folder) + "**/")
-    folder_list.sort()
-
-    print(folder_list)
-
-    if check_if_exp_root(exp_root_folder):
-        root_folders_list = folder_list
-        for f in root_folders_list:
-            folder_list = glob.glob(complete_path(f) + "**/")
-            folder_list.sort()
-
-            exp_cat = f.split("/")[-2]
-            if (not (exp_cat == "Translation_2D")) and (not (exp_cat == "Rotation_3D")) and (not (exp_cat == "Translation_3D")):
-                continue
-
-            for exp_folder in folder_list:
-                run_dragon_diffusion_single(exp_folder, dragon_diff_model, exp_cat = exp_cat)
-    
-            # exit()
-    else:
-        for exp_folder in folder_list:
-            run_dragon_diffusion_single(exp_folder, dragon_diff_model)
+        masked_img = image.copy()
+    # when new image is uploaded, `selected_points` should be empty
+    return image, [], masked_img, mask
 
 
+def get_points_geodiff(img,
+               sel_pix,
+               target_pts):
+    # collect the selected point
+    # sel_pix.append(evt.index)
 
-if __name__ == "__main__":
+    # draw points
+    points = []
+    all_points = []
 
-    pretrained_model_path = "CompVis/stable-diffusion-v1-4"
-    dragon_diff_model = DragonModels(pretrained_model_path=pretrained_model_path)
-    # dragon_diff_model = None
-    parser = argparse.ArgumentParser(description="setting arguments")
-    parser.add_argument('--exp_root',
-        required=False, default = None)
-    args = parser.parse_args()
+    for idx, point in enumerate(sel_pix):
+        cv2.circle(img, tuple(point), 10, (255, 0, 0), -1)
+        cv2.circle(img, tuple(target_pts[idx]), 10, (0, 0, 255), -1)
 
-    run_geodiff(args.exp_root, dragon_diff_model)
+        # if idx % 2 == 0:
+        #     # draw a red circle at the handle point
+        #     cv2.circle(img, tuple(point), 10, (255, 0, 0), -1)
+        # else:
+        #     # draw a blue circle at the handle point
+        #     cv2.circle(img, tuple(point), 10, (0, 0, 255), -1)
+        points.append(tuple(point))
+        points.append(tuple(target_pts[idx]))
 
-    pass
+        all_points.append(tuple(point))
+        all_points.append(tuple(target_pts[idx]))
+        # draw an arrow from handle point to target point
+        if len(points) == 2:
+            cv2.arrowedLine(img, points[0], points[1], (255, 255, 255), 4, tipLength=0.5)
+            points = []
+
+    if not isinstance(img, np.ndarray):
+        img = np.array(img)
+
+    return img, np.array(all_points)
+    # return img if isinstance(img, np.ndarray) else np.array(img)
+
+def draw_points(image, points):
+    img = image.copy()
+
+    for idx, point in enumerate(points):   
+        cv2.circle(img, tuple(point), 5, (0, 0, 255), -1)
+
+    if not isinstance(img, np.ndarray):
+        img = np.array(img)
+
+    return img

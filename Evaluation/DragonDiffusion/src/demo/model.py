@@ -261,7 +261,7 @@ class DragonModels():
             original_image = cv2.circle(original_image, (x_cur_i, y_cur_i), 6,(255,0,0),-1)
 
         return [img_rec, reference_image, original_image]
-
+    # run_move(self, original_image, mask, mask_ref, prompt, resize_scale, w_edit, w_content, w_contrast, w_inpaint, seed, selected_points, guidance_scale, energy_scale, max_resolution, SDE_strength, ip_scale=None):
     def run_drag(self, original_image, mask, prompt, w_edit, w_content, w_inpaint, seed, selected_points, guidance_scale, energy_scale, max_resolution, SDE_strength, ip_scale=None):
         seed_everything(seed)
         energy_scale = energy_scale*1e3
