@@ -103,12 +103,17 @@ def run_self_guidance_folder(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_n
     depth_torch = torch.from_numpy(depth).type_as(image_torch)
     transform_mat_torch = torch.from_numpy(transform_mat).type_as(image_torch)
 
-    # print(transform_mat_torch.shape, transform_mat_torch)
-    t_coords_depth, p_image, projected_image_amodal_mask = get_transform_coordinates(image / 255.0, depth, image_mask / 255.0, transform_in = transform_mat_torch, return_mesh=True)
-    # print(t_coords_depth.shape)
 
+    t_coords_depth, p_image, projected_image_amodal_mask = get_transform_coordinates(image / 255.0, depth, image_mask / 255.0, transform_in = transform_mat_torch, return_mesh=True)
 
     t_coords_depth = torch.tensor(t_coords_depth)
+
+
+    # image_warped = warp_grid_edit((image_torch[None].permute(0, -1, 1, 2) / 255.0).float(), t_coords_depth[None].float(), padding_mode='zeros', align_corners=True, mode=MODE)
+
+    # p_image = image_warped.detach().cpu().numpy()[0].transpose(1, 2, 0)
+    # print(p_image.max(), p_image.min())
+    # plt.imsave("./projected.png", p_image)
     
     # image_warped = warp_grid_edit((torch.tensor(image_stitch[None]).permute(0, -1, 1, 2) / 255.0).float(), t_coords_depth[None].float(), padding_mode='zeros', align_corners=True, mode=MODE)
     # exit()
@@ -129,10 +134,10 @@ def run_self_guidance_folder(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_n
 
     # Perform Inversion
 
-    # sd_ori_pipe.scheduler = pipe_noising_scheduler
-    # inv_latents, _ = sd_ori_pipe(prompt=prompt, negative_prompt="", guidance_scale=guidance_scale,
-    #                       output_type='latent', return_dict=False,
-    #                       num_inference_steps=50, latents=latents)
+    sd_ori_pipe.scheduler = pipe_noising_scheduler
+    inv_latents, _ = sd_ori_pipe(prompt=prompt, negative_prompt="", guidance_scale=guidance_scale,
+                          output_type='latent', return_dict=False,
+                          num_inference_steps=50, latents=latents)
 
     # # Reconstruct image
     # sd_ori_pipe.scheduler = pipe_denoising_scheduler
@@ -148,10 +153,10 @@ def run_self_guidance_folder(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_n
     # Move instruction to move by shape
     move = partial(perform_geometric_transform, t_coords_depth = t_coords_depth, mode = MODE )
     # guidance losses and terms
-    guidance = partial(move_object_by_shape, shape_weight=0.5, appearance_weight=2.0, position_weight=8, tau=move)
+    guidance = partial(move_object_by_shape, shape_weight=1.0, appearance_weight=2.0, position_weight=8, tau=move)
     # perform the edit using diffusion self guidance
     image_list = pipe(prompt, obj_to_edit = object_to_edit, height=512, width=512, 
-                    num_inference_steps=50, generator=generator, latents=latents,
+                    num_inference_steps=50, generator=generator, latents=inv_latents,
             max_guidance_iter_per_step=3, guidance_func=guidance, g_weight=100, guidance_scale=guidance_scale)
 
 
