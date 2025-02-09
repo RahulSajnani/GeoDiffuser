@@ -153,7 +153,7 @@ def run_self_guidance_folder(pipe, sd_ori_pipe, pipe_denoising_scheduler, pipe_n
     # Move instruction to move by shape
     move = partial(perform_geometric_transform, t_coords_depth = t_coords_depth, mode = MODE )
     # guidance losses and terms
-    guidance = partial(move_object_by_shape, shape_weight=1.0, appearance_weight=2.0, position_weight=8, tau=move)
+    guidance = partial(move_object_by_shape, shape_weight=1.0, appearance_weight=4.0, position_weight=8, tau=move)
     # perform the edit using diffusion self guidance
     image_list = pipe(prompt, obj_to_edit = object_to_edit, height=512, width=512, 
                     num_inference_steps=50, generator=generator, latents=inv_latents,

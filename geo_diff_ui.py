@@ -156,6 +156,8 @@ with gr.Blocks() as demo:
                                 step=0.001,
                                 value=0.0)
 
+                with gr.Row():
+                    clear_transforms_button = gr.Button("Clear Transforms")
 
                 with gr.Row():
                     load_location = gr.Textbox(label = "Load exp directory", value = "/oscar/scratch/rsajnani/rsajnani/research/2023/GeometryDiffuser/dataset/large_scale_study_optimizer_sd_test/Translation_3D/34", interactive=True)
@@ -186,7 +188,7 @@ with gr.Blocks() as demo:
                                 value=0.0)
 
                 with gr.Row():
-                    clear_transforms_button = gr.Button("Clear Transforms")
+                    transform_button = gr.Button("Check Transformed Image")
 
                 with gr.Row():
                     exp_transform_type = gr.Dropdown(label = "Experiment Type", choices = ["Mix", "Rotation_3D", "Translation_3D", "Removal", "Rotation_2D", "Translation_2D", "Scaling"], value = "Mix")
@@ -218,16 +220,24 @@ with gr.Blocks() as demo:
                                 step=0.01,
                                 value=1.0)
                 
-                prompt = gr.Textbox(info="Prompt for Editing (Optional)", value="")
+
                 with gr.Row():
-                    transform_button = gr.Button("Check Transformed Image")
+                    translate_factor = gr.Slider(label='Push object depth farther away from camera [0-1]',
+                    info='Push object depth farther away from camera [0-1]',
+                    minimum=0,
+                    maximum=5,
+                    step=0.01,
+                    value=0.1)
                 
+                with gr.Row():
+                    depth_model = gr.Dropdown(label = "Depth Estimator", choices = ["midas_depth", "depth_anything", "constant_depth", "zoe_depth"], value = "depth_anything")
+                    depth_button = gr.Button("Get Depth")
+                # with gr.Row():
+
                 with gr.Row():
                     depth_pt_path = gr.Textbox(label = "MIDAS checkpoint path checkpoint path", value = MIDAS_DEPTH_PATH, interactive=True)
                 with gr.Row():
-                    depth_model = gr.Dropdown(label = "Depth Estimator", choices = ["midas_depth", "depth_anything", "constant_depth", "zoe_depth"], value = "depth_anything")
-                with gr.Row():
-                    depth_button = gr.Button("Get Depth")
+                    prompt = gr.Textbox(info="Prompt for Editing (Optional)", value="")
                 
                 # Add feature later!
                 # with gr.Row():
@@ -239,11 +249,11 @@ with gr.Blocks() as demo:
                 #         value = "CompVis/stable-diffusion-v1-4")
 
 
-                with gr.Row():
+                with gr.Row(visible=False):
                     advanced_options_button = gr.Button("View Advanced Options")
 
-                with gr.Row(visible=False):
-                    movement_panel_show = gr.Button("Show Geometry Editing Loss Weights for Movement")
+                # with gr.Row(visible=False):
+                #     movement_panel_show = gr.Button("Show Geometry Editing Loss Weights for Movement")
 
                 
 
@@ -251,7 +261,9 @@ with gr.Blocks() as demo:
 
                 
 
-        with gr.Row(visible=False) as advanced_options:
+        # with gr.Row(visible=False) as advanced_options:
+
+        with gr.Accordion("Advanced Editing Options. Open for More!", open=False):
             # Not happy with this
             # gr.Markdown("""<p style="text-align: center; font-size: 20px">Advanced Options</p>""")
             gr.Markdown("""
@@ -280,12 +292,7 @@ with gr.Blocks() as demo:
                 
                 
 
-                translate_factor = gr.Slider(label='Push object depth farther away from camera [0-1]',
-                            info='Push object depth farther away from camera [0-1]',
-                            minimum=0,
-                            maximum=1,
-                            step=0.01,
-                            value=0.1)
+
 
                 
 
@@ -401,7 +408,10 @@ with gr.Blocks() as demo:
 
                 # depth_correct_button = gr.Button("Median Filter on Depth")
 
-        with gr.Row(visible=True) as movement_options:
+        # with gr.Row(visible=True) as movement_options:
+
+        with gr.Accordion("Movement Loss Control", open=True):
+        
 
             gr.Markdown("""<p style="text-align: center; font-size: 20px">Movement loss</p>""")
             
@@ -482,12 +492,12 @@ with gr.Blocks() as demo:
                             step=0.01,
                             value=15)
 
-                obj_edit_step = gr.Slider(label='Diffusion Correction',
-                            info='Diffusion Correction',
-                            minimum=0,
-                            maximum=1,
+                diffusion_correction = gr.Slider(label='Diffusion Correction',
+                            info='Diffusion Correction vs Edit Adherance. Setting high diffusion correction (~0.6-1.0) reduces edit adherance and does not perform the edit',
+                            minimum=0.0,
+                            maximum=0.4,
                             step=0.01,
-                            value=0.9)
+                            value=0.1)
 
                 edit_button = gr.Button("Move Object")
                 
@@ -496,7 +506,7 @@ with gr.Blocks() as demo:
 
 
         with gr.Row(visible=False) as stitching_options:
-            movement_panel_hide = gr.Button("Hide Movement Panel")
+            # movement_panel_hide = gr.Button("Hide Movement Panel")
             gr.Markdown("""<p style="text-align: center; font-size: 20px">Stitching loss</p>""")
             
             with gr.Column():    
@@ -573,7 +583,7 @@ with gr.Blocks() as demo:
                             step=0.01,
                             value=1.0)
                 
-                stitch_panel_hide = gr.Button("Hide Stitching Panel")
+                # stitch_panel_hide = gr.Button("Hide Stitching Panel")
                 stitch_button = gr.Button("Stitch Image")
 
 
@@ -644,10 +654,10 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     load_location_inpainting = gr.Textbox(label = "Load exp directory", value = "./ui_outputs/rotation_2/3/", interactive=True)
                     load_exp_button_inpainting = gr.Button("Load Experiment")
-                with gr.Row(visible=False):
-                    inpainting_loss_button = gr.Button("Show inpainting loss weights")
-                with gr.Row(visible=False):
-                    stitching_loss_button = gr.Button("Show stitching loss weights")
+                # with gr.Row(visible=False):
+                #     inpainting_loss_button = gr.Button("Show inpainting loss weights")
+                # with gr.Row(visible=False):
+                #     stitching_loss_button = gr.Button("Show stitching loss weights")
 
                 
             with gr.Column():
@@ -680,8 +690,8 @@ with gr.Blocks() as demo:
                 #         value = "CompVis/stable-diffusion-v1-4")
 
 
-                with gr.Row():
-                    advanced_options_button_inpainting = gr.Button("View Advanced Options")
+                # with gr.Row():
+                #     advanced_options_button_inpainting = gr.Button("View Advanced Options")
                 
 
 
@@ -691,7 +701,9 @@ with gr.Blocks() as demo:
 
                 
 
-        with gr.Row(visible=False) as advanced_options_inpainting:
+        # with gr.Row(visible=False) as advanced_options_inpainting:
+        with gr.Accordion("Advanced Inpainting Options. Open for More!", open=False):
+        
             # Not happy with this
             # gr.Markdown("""<p style="text-align: center; font-size: 20px">Advanced Options</p>""")
             gr.Markdown("""
@@ -848,7 +860,9 @@ with gr.Blocks() as demo:
 
 
         
-        with gr.Row(visible=True) as inpainting_options:
+        # with gr.Row(visible=True) as inpainting_options:
+        with gr.Accordion("Inpainting Loss Control", open=True):
+        
 
             gr.Markdown("""<p style="text-align: center; font-size: 20px">Inpainting loss</p>""")
             
@@ -907,8 +921,8 @@ with gr.Blocks() as demo:
 
                 inpaint_mask_button = gr.Button("Inpaint Mask")
             
-            with gr.Row(visible=False):
-                inpaint_panel_hide = gr.Button("Hide Inpainting Panel")
+            # with gr.Row(visible=False):
+            #     inpaint_panel_hide = gr.Button("Hide Inpainting Panel")
 
 
 
@@ -956,7 +970,9 @@ with gr.Blocks() as demo:
         background_image,
         H_txt,
         W_txt, 
-        exp_transform_type],
+        exp_transform_type,
+        download_image_input,
+        download_image],
         [],
     )
 
@@ -988,7 +1004,7 @@ with gr.Blocks() as demo:
 
     edit_button.click(
         get_edited_image,
-        [input_image, depth_image, mask_image, transform_in, edited_image, guidance_scale, skip_steps, num_ddim_steps, optim_lr, cross_replace_steps, self_replace_steps, latent_replace_steps, optimize_steps, splatting_radius, movement_sim_loss_w_self, movement_sim_loss_w_cross, movement_loss_w_self, movement_loss_w_cross, movement_removal_loss_w_self, movement_removal_loss_w_cross, movement_smoothness_loss_w_self, movement_smoothness_loss_w_cross, amodal_loss_w_cross, amodal_loss_w_self, splatting_tau, splatting_points_per_pixel, prompt, obj_edit_step],
+        [input_image, depth_image, mask_image, transform_in, edited_image, guidance_scale, skip_steps, num_ddim_steps, optim_lr, cross_replace_steps, self_replace_steps, latent_replace_steps, optimize_steps, splatting_radius, movement_sim_loss_w_self, movement_sim_loss_w_cross, movement_loss_w_self, movement_loss_w_cross, movement_removal_loss_w_self, movement_removal_loss_w_cross, movement_smoothness_loss_w_self, movement_smoothness_loss_w_cross, amodal_loss_w_cross, amodal_loss_w_self, splatting_tau, splatting_points_per_pixel, prompt, diffusion_correction],
         [edited_image]
     )
 
@@ -1009,11 +1025,11 @@ with gr.Blocks() as demo:
 
 
         
-    advanced_options_button.click(
-        show_options,
-        [],
-        [advanced_options]
-    )
+    # advanced_options_button.click(
+    #     show_options,
+    #     [],
+    #     [advanced_options]
+    # )
 
 
     clear_transforms_button.click(
@@ -1023,37 +1039,37 @@ with gr.Blocks() as demo:
     )
 
 
-    movement_panel_show.click(
-        show_options,
-        [],
-        [movement_options]
-    )
+    # movement_panel_show.click(
+    #     show_options,
+    #     [],
+    #     [movement_options]
+    # )
 
-    movement_panel_hide.click(
-        hide_options,
-        [],
-        [movement_options]
-    )
+    # movement_panel_hide.click(
+    #     hide_options,
+    #     [],
+    #     [movement_options]
+    # )
 
 
 
-    stitching_loss_button.click(
-        show_options,
-        [],
-        [stitching_options]
-    )
+    # stitching_loss_button.click(
+    #     show_options,
+    #     [],
+    #     [stitching_options]
+    # )
 
-    inpaint_panel_hide.click(
-        hide_options,
-        [],
-        [inpainting_options]
-    )
+    # inpaint_panel_hide.click(
+    #     hide_options,
+    #     [],
+    #     [inpainting_options]
+    # )
 
-    stitch_panel_hide.click(
-        hide_options,
-        [],
-        [stitching_options]
-    )
+    # stitch_panel_hide.click(
+    #     hide_options,
+    #     [],
+    #     [stitching_options]
+    # )
     background_upload.click(
         show_options,
         [],
@@ -1071,7 +1087,7 @@ with gr.Blocks() as demo:
     edited_image_inpainting.change(fn = resize_image_to_size, inputs = [input_image_inpainting, H_txt_inpainting, W_txt_inpainting], outputs = download_image_input_inpainting)
 
 
-    save_button.click(
+    save_button_inpainting.click(
         save_exp,
         [save_location_inpainting, 
         input_image_inpainting,
@@ -1084,7 +1100,9 @@ with gr.Blocks() as demo:
         background_image,
         H_txt_inpainting,
         W_txt_inpainting, 
-        exp_transform_type_inpainting],
+        exp_transform_type_inpainting,
+        download_image_input_inpainting,
+        download_image_inpainting],
         [],
     )
 
@@ -1109,16 +1127,16 @@ with gr.Blocks() as demo:
         # ed["input_image_png"], ed["input_mask_png"], ed["background_image_png"], ed["depth_npy"], ed["depth_png"], ed["transform_npy"], ed["transformed_image_png"], ed["result_png"], ed["image_shape_npy"][0], ed["image_shape_npy"][1]
     )
 
-    advanced_options_button_inpainting.click(
-        show_options,
-        [],
-        [advanced_options_inpainting]
-    )
-    inpainting_loss_button.click(
-        show_options,
-        [],
-        [inpainting_options]
-    )
+    # advanced_options_button_inpainting.click(
+    #     show_options,
+    #     [],
+    #     [advanced_options_inpainting]
+    # )
+    # inpainting_loss_button.click(
+    #     show_options,
+    #     [],
+    #     [inpainting_options]
+    # )
     # transform_button.click(
     
     # )
@@ -1131,5 +1149,13 @@ demo.launch(share=True, debug=True)
 
 #     run_ui()
     
+
+# todo
+# improve color histogram post processing
+# increase speed by not performing bilinear interpolation repeatedly
+# Better amodal mask for editing
+# Check gradio demo and fix the issue of hanging
+# Write a editing readme that uses depth
+# set high depth as default value (more far away from camera essentially)
     
     

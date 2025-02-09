@@ -94,26 +94,37 @@ class RasterizePointsXYsBlending(nn.Module):
         radius = float(self.radius) / float(image_size) * 2.0
 
         # print(pts3D.dtype, src.dtype)
-        pts3D = Pointclouds(points=pts3D, features=src.permute(0,2,1))
 
         im_size = int((image_size))
 
         # with torch.autocast("cuda"):
 
+        # pts3D_c = pts3D.detach().clone()
         # Using cached points
         # if im_size in self.rasterization_dict:
-        #     points_idx = self.rasterization_dict[im_size]["points_idx"][:1].repeat(bs, 1, 1, 1)
-        #     dist = self.rasterization_dict[im_size]["dist"][:1].repeat(bs, 1, 1, 1)
+        #     points_idx_cache = self.rasterization_dict[im_size]["points_idx"][:1].repeat(bs, 1, 1, 1)
+        #     dist_cache = self.rasterization_dict[im_size]["dist"][:1].repeat(bs, 1, 1, 1)
+        #     pts3D_cache = self.rasterization_dict[im_size]["pts3d"][:1].repeat(bs, 1, 1, 1)
 
+        pts3D = Pointclouds(points=pts3D, features=src.permute(0,2,1))
         # else:
         points_idx, _, dist = rasterize_points(
                 pts3D,  im_size, radius, self.points_per_pixel
             )
             # print(points_idx.shape, dist.shape)
             # exit()
-            # self.rasterization_dict[im_size] = {}
-            # self.rasterization_dict[im_size]["points_idx"] = points_idx.detach().clone()
-            # self.rasterization_dict[im_size]["dist"] = dist.detach().clone()
+        # if im_size in self.rasterization_dict:
+        
+        #     print((dist - dist_cache).abs().mean(), f" dist {im_size} {src.shape}")
+        #     print(torch.abs(points_idx - points_idx_cache).to(torch.half).mean(), f" point_idx {im_size} {src.shape}")
+        #     print(points_idx.shape, points_idx_cache.shape)
+        #     print((pts3D_c - pts3D_cache).abs().mean())
+
+        # if not im_size in self.rasterization_dict:
+        # self.rasterization_dict[im_size] = {}
+        # self.rasterization_dict[im_size]["points_idx"] = points_idx.detach().clone()
+        # self.rasterization_dict[im_size]["dist"] = dist.detach().clone()
+        # self.rasterization_dict[im_size]["pts3d"] = pts3D_c.detach().clone()
 #         if os.environ["DEBUG"]:
 #             print("Max dist: ", dist.max(), pow(radius, self.opts.rad_pow))
 
@@ -393,7 +404,7 @@ def get_mesh(src_camera_coords, obj_mask):
 
 
 
-def forward_splatting_pytorch3d_warp(tgt_image, depth, intrinsics, pose_transform, return_coordinates = False, obj_mask = None, return_mesh = False):
+def forward_splatting_pytorch3d_warp(tgt_image, depth, intrinsics, pose_transform, return_coordinates = False, obj_mask = None, return_mesh = False, return_projected_depth = False):
 
 
     depth = depth.float()

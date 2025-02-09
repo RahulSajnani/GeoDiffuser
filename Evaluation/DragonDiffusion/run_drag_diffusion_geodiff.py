@@ -275,7 +275,7 @@ def resize_image(image, aspect_ratio):
     # input_img = np.array(Image.fromarray(img).resize((w, h), Image.NEAREST))
     return img
 
-def run_dragon_diffusion_single(exp_folder, dragon_diff_model, exp_cat = "Translation_2D", num_points = 40):
+def run_dragon_diffusion_single(exp_folder, dragon_diff_model, exp_cat = "Translation_2D", num_points = 100):
 
 
     exp_dict = read_exp(exp_folder)

@@ -60,8 +60,14 @@ def save_exp(save_location_in,
             h = 512,
             w = 512,
             exp_transform_type = "Mix",
+            download_input = None,
+            download_edit = None
             ):
 
+    # print(input_img)
+    # print(type(input_img))
+    # print(input_img[0])
+    # print(input_img[1])
 
     save_location = complete_path(save_location_in) + exp_transform_type
     create_folder(save_location)
@@ -73,6 +79,9 @@ def save_exp(save_location_in,
     
     create_folder(save_folder)
 
+    # print(type(input_img))
+    # print(input_img.shape)
+
     plt.imsave(save_folder + "input_image.png", input_img)
 
     if transformed_image is not None:
@@ -82,13 +91,20 @@ def save_exp(save_location_in,
     if background_image is not None:
         plt.imsave(save_folder + "background_image.png", background_image)
     
+    if download_input is not None:
+        plt.imsave(save_folder + "download_input.png", download_input)
+    if download_edit is not None:
+        plt.imsave(save_folder + "download_edit.png", download_edit)
+    
+
     
     plt.imsave(save_folder + "input_mask.png", input_mask, cmap="gray")
     plt.imsave(save_folder + "depth.png", input_depth_vis, cmap = "gray")
     np.save(save_folder + "depth.npy", input_depth)
     np.save(save_folder + "transform.npy", transform_in)
     np.save(save_folder + "image_shape.npy", np.array([h, w]))
-    return
+    # print("Saved everything")
+    # return
 
 
 
@@ -497,7 +513,7 @@ def save_global_model_variables(ldm_stable_model, tokenizer_model, scheduler_in)
 
 
 def get_edited_image(image, depth, image_mask, transform_in, edited_image, guidance_scale = 7.5, skip_steps = 1, num_ddim_steps = 50, lr = 0.03, cross_replace_steps = 0.97, self_replace_steps = 0.97, latent_replace = 0.6, optimize_steps = 0.95, splatting_radius = 1.3,
-    movement_sim_loss_w_self = 0.74, movement_sim_loss_w_cross = 0.5, movement_loss_w_self = 6.5, movement_loss_w_cross = 3.34, movement_removal_loss_w_self = 4.34, movement_removal_loss_w_cross = 2.67, movement_smoothness_loss_w_self = 0.0, movement_smoothness_loss_w_cross = 0.0, amodal_loss_w_cross = 3.5, amodal_loss_w_self = 80.5, splatting_tau = 1.0, splatting_points_per_pixel = 15, prompt = "", obj_edit_step = 1.0, unet_path = "",
+    movement_sim_loss_w_self = 0.74, movement_sim_loss_w_cross = 0.5, movement_loss_w_self = 6.5, movement_loss_w_cross = 3.34, movement_removal_loss_w_self = 4.34, movement_removal_loss_w_cross = 2.67, movement_smoothness_loss_w_self = 0.0, movement_smoothness_loss_w_cross = 0.0, amodal_loss_w_cross = 3.5, amodal_loss_w_self = 80.5, splatting_tau = 1.0, splatting_points_per_pixel = 15, prompt = "", diffusion_correction = 0.0, unet_path = "",
     ldm_stable_model = None, 
     tokenizer_model = None, 
     scheduler_in = None, 
@@ -508,6 +524,9 @@ def get_edited_image(image, depth, image_mask, transform_in, edited_image, guida
 
     torch.cuda.empty_cache()
 
+    # # For diffusion correction
+
+
     loss_weights_dict = {
     "self":{"sim": movement_sim_loss_w_self, "movement": movement_loss_w_self, "smoothness": movement_smoothness_loss_w_self, "removal": movement_removal_loss_w_self, "amodal": amodal_loss_w_self},
     "cross": {"sim": movement_sim_loss_w_cross, "movement": movement_loss_w_cross, "smoothness": movement_smoothness_loss_w_cross, "removal": movement_removal_loss_w_cross, "amodal": amodal_loss_w_cross}}
@@ -515,7 +534,7 @@ def get_edited_image(image, depth, image_mask, transform_in, edited_image, guida
 
     print(loss_weights_dict)
     cross_replace_steps = {'default_': cross_replace_steps}
-    images = ge.perform_geometric_edit(image, depth, image_mask[..., 0] / 255.0, torch.tensor(transform_in).float(), prompt=prompt, ldm_stable_model=ldm_stable_model, tokenizer_model = tokenizer_model, scheduler_in = scheduler_in, cross_replace_steps =cross_replace_steps, self_replace_steps = self_replace_steps, optimize_steps = optimize_steps, lr = lr, latent_replace = latent_replace, optimize_embeddings = optimize_embeddings, optimize_latents = optimize_latents, obj_edit_step = obj_edit_step, perform_inversion = perform_inversion, guidance_scale = guidance_scale, skip_optim_steps = skip_steps, num_ddim_steps = num_ddim_steps, splatting_radius = splatting_radius, progress = progress, loss_weights_dict = loss_weights_dict, splatting_tau = splatting_tau, splatting_points_per_pixel = splatting_points_per_pixel, unet_path = unet_path)
+    images = ge.perform_geometric_edit(image, depth, image_mask[..., 0] / 255.0, torch.tensor(transform_in).float(), prompt=prompt, ldm_stable_model=ldm_stable_model, tokenizer_model = tokenizer_model, scheduler_in = scheduler_in, cross_replace_steps =cross_replace_steps, self_replace_steps = self_replace_steps, optimize_steps = optimize_steps, lr = lr, latent_replace = latent_replace, optimize_embeddings = optimize_embeddings, optimize_latents = optimize_latents, obj_edit_step = 1.0 - diffusion_correction, perform_inversion = perform_inversion, guidance_scale = guidance_scale, skip_optim_steps = skip_steps, num_ddim_steps = num_ddim_steps, splatting_radius = splatting_radius, progress = progress, loss_weights_dict = loss_weights_dict, splatting_tau = splatting_tau, splatting_points_per_pixel = splatting_points_per_pixel, unet_path = unet_path)
 
     edited_image = images[-1]
     return edited_image
@@ -560,7 +579,7 @@ def get_stitched_image(image, image_background, depth, image_mask, transform_in,
     scheduler_in = None, 
     optimize_embeddings = True,
     optimize_latents = True,
-    obj_edit_step = 1.0,
+    diffusion_correction = 0.0,
     perform_inversion = False, progress=gr.Progress(track_tqdm=False)):
 
     torch.cuda.empty_cache()
@@ -575,7 +594,7 @@ def get_stitched_image(image, image_background, depth, image_mask, transform_in,
     print(loss_weights_dict)
 
 
-    images = ge.perform_geometric_edit(image_background, depth, image_mask[..., 0] / 255.0, torch.tensor(transform_in).float(), prompt, ldm_stable_model=ldm_stable_model, tokenizer_model = tokenizer_model, scheduler_in = scheduler_in, cross_replace_steps =cross_replace_steps, self_replace_steps = self_replace_steps, optimize_steps = optimize_steps, lr = lr, latent_replace = latent_replace, optimize_embeddings = optimize_embeddings, optimize_latents = optimize_latents, obj_edit_step = obj_edit_step, perform_inversion = perform_inversion, guidance_scale = guidance_scale, skip_optim_steps = skip_steps, num_ddim_steps = num_ddim_steps, splatting_radius = splatting_radius, image_stitch = image, edit_type = "geometry_stitch", scale_loss_w_self = scale_loss_w_self, scale_loss_w_cross = scale_loss_w_cross, sim_loss_w_self = sim_loss_w_self, sim_loss_w_cross = sim_loss_w_cross, fast_start_steps = fast_start_steps,
+    images = ge.perform_geometric_edit(image_background, depth, image_mask[..., 0] / 255.0, torch.tensor(transform_in).float(), prompt, ldm_stable_model=ldm_stable_model, tokenizer_model = tokenizer_model, scheduler_in = scheduler_in, cross_replace_steps =cross_replace_steps, self_replace_steps = self_replace_steps, optimize_steps = optimize_steps, lr = lr, latent_replace = latent_replace, optimize_embeddings = optimize_embeddings, optimize_latents = optimize_latents, obj_edit_step = 1.0 - diffusion_correction, perform_inversion = perform_inversion, guidance_scale = guidance_scale, skip_optim_steps = skip_steps, num_ddim_steps = num_ddim_steps, splatting_radius = splatting_radius, image_stitch = image, edit_type = "geometry_stitch", scale_loss_w_self = scale_loss_w_self, scale_loss_w_cross = scale_loss_w_cross, sim_loss_w_self = sim_loss_w_self, sim_loss_w_cross = sim_loss_w_cross, fast_start_steps = fast_start_steps,
     num_first_optim_steps = num_first_optim_steps, progress = progress, loss_weights_dict = loss_weights_dict, splatting_tau = splatting_tau, splatting_points_per_pixel = splatting_points_per_pixel)
 
 

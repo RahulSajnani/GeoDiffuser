@@ -10,11 +10,11 @@ import lpips
 import clip
 import ui_utils
 import glob
-from evaluation.dift_sd import SDFeaturizer
+from GeoDiffuser.evaluation.dift_sd import SDFeaturizer
 from pytorch_lightning import seed_everything
 import cv2
 import matplotlib.pyplot as plt
-from util import vis_utils
+from GeoDiffuser.utils import vis_utils
 import tqdm
 import geometry_editor_updated as ge
 

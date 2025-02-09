@@ -117,8 +117,6 @@ def project_points_to_3D(im, K, d):
 
 def get_geodiff_translation(im, K, d_in, transform_mat, obj_mask):
 
-    print(transform_mat)
-
     d, mask_d = prepare_depth_for_projection(d_in, obj_mask[..., 0] / 255.0)
 
 
@@ -216,9 +214,9 @@ def prepare_depth_for_projection(d, mask_in = None):
         # Normalize depth
         depth = depth / (depth.max() + 1e-8)
 
-        depth[depth > 0.95] = 10.0
+        depth[depth > 0.95] = 1000.0
 
-    mask = (depth < 10.0) * 1.0
+    mask = (depth < 100.0) * 1.0
 
     if obj_mask is not None:
         mask = obj_mask * mask
