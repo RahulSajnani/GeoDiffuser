@@ -2,11 +2,28 @@ from skimage.exposure import match_histograms
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+# import colorsys
+
+def rgb_to_hsv(im):
+    """Converts RGB color values (ranging from 0 to 255) to HSV values (ranging from 0.0 to 1.0)."""
+
+    # print(im.max())
+    return cv2.cvtColor(im, cv2.COLOR_RGB2LAB)
+
+def hsv_to_rgb(im):
+    # print(im.max())
+
+    return cv2.cvtColor(im, cv2.COLOR_LAB2RGB)
+
+
+
+
+
 
 
 def _match_cumulative_cdf(source, template, mask = None, mask_source = None):
     """
-    Return modified source array so that the cumulative density function of
+    Return modified source array so that the cumulative density function of (source matches target)
     its values matches the cumulative density function of the template.
     Borrowed from: https://github.com/scikit-image/scikit-image/blob/v0.22.0/skimage/exposure/histogram_matching.py#L34-L90
     """
@@ -59,6 +76,26 @@ def masked_histogram_matching(source, template, mask = None, mask_source = None)
     # print(matched_image.min(), matched_image.max())
     return matched_image
 
+def masked_histogram_matching_hsv(source, template, mask = None, mask_source = None):
+
+    matched_image = []
+    source_hsv = rgb_to_hsv(source)
+    template_hsv = rgb_to_hsv(template)
+
+    for i in range(source.shape[-1]):
+        
+        if i > 2:
+            matched_source = _match_cumulative_cdf(source_hsv[..., i], template_hsv[..., i], mask, mask_source)
+            matched_image.append(matched_source)
+        else:
+            matched_image.append(source_hsv[..., i])
+
+        # print(matched_source.max(), matched_source.min())
+
+    matched_image = hsv_to_rgb(np.stack(matched_image, -1).astype("uint8"))
+
+    # print(matched_image.min(), matched_image.max())
+    return matched_image
 
 def resize_image(image, aspect_ratio):
 
@@ -103,20 +140,29 @@ def apply_color_correction(correction, image):
 
 if __name__ == "__main__":
 
-    d_path = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/editing/1/"
-    im_1 = (plt.imread(d_path + "result_ls.png")[..., :3] * 255).astype("uint8")
-    im_m = (plt.imread(d_path + "input_mask.png")[..., 0] * 255).astype("uint8")
+    d_path = "/users/rsajnani/scratch/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_optimizer/Rotation_3D/34/"
+
+
+    im_1 = (plt.imread(d_path + "resized_input_image_png.png")[..., :3] * 255).astype("uint8")
+    im_m = (plt.imread(d_path + "resized_input_mask_png.png")[..., 0] * 255).astype("uint8") / 255.0
     aspect_ratio = np.load(d_path + "image_shape.npy")
-    # im_o = (plt.imread(d_path + "output_nt_0_chain.png")[..., :3] * 255).astype("uint8")
+    im_o = (plt.imread(d_path + "resized_result_ls.png")[..., :3] * 255).astype("uint8")
+    im_transformed = (plt.imread(d_path + "ours/transformed_mask_square.png")[..., 0] * 255).astype("uint8") / 255.0
     
     print(im_1.max(), im_1.min(), im_1.shape, im_m.shape)
-    # print(im_m.max(), im_m.min(), im_m.shape)
+    print(im_m.max(), im_m.min(), im_m.shape)
     # print(im_o.max(), im_o.min(), im_o.shape)
 
-    out = resize_image(im_1, aspect_ratio).astype("uint8")
-    out_m = resize_image(im_m, aspect_ratio).astype("uint8")
-    # out = masked_histogram_matching(im_o, im_1, (255 - im_m) / 255.0).astype("uint8")
+    # out = resize_image(im_1, aspect_ratio).astype("uint8")
+    im_transformed = resize_image(im_transformed, aspect_ratio).astype("uint8")
+
+    mask_wo_edit = 1.0 - np.clip(im_m + im_transformed, a_min=0.0, a_max=1.0)
+    mask_template = np.clip(mask_wo_edit + im_m, a_min=0.0, a_max=1.0)
+    mask_edit = np.clip(mask_wo_edit + im_transformed, a_min=0.0, a_max=1.0)
+    out = masked_histogram_matching_hsv(im_o, im_1, mask_source=mask_edit, mask=mask_template).astype("uint8")
     # out = masked_histogram_matching(im_o, im_1).astype("uint8")
-    plt.imsave(d_path + "result_ls_resized.png", out)
-    plt.imsave(d_path + "resized_input_mask.png", out_m, cmap="gray")
+    plt.imsave("./result_ls_resized.png", out)
+
+    # plt.imsave(d_path + "result_ls_resized.png", out)
+    # plt.imsave(d_path + "resized_input_mask.png", out_m, cmap="gray")
     pass

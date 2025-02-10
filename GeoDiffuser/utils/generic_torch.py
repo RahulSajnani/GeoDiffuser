@@ -200,6 +200,8 @@ def reshape_attention_mask(mask, in_mat = None, in_mat_shape = None):
     # if m.shape[-1] > s_z:
     #     m = torch.nn.functional.interpolate(m.float(), (s_z, s_z), mode="area").half()
     # else:
+
+    # print(f"resizing {s_m} to {s_z}")
     m = T.Resize(size=(s_z, s_z), antialias=False, interpolation=T.InterpolationMode.BILINEAR)(m)
     
     return m

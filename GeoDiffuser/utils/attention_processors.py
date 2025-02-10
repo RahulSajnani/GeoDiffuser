@@ -12,6 +12,16 @@ from diffusers.models.attention_processor import USE_PEFT_BACKEND
 
 DISTANCE_CLASS = CoordinateDistances()
 
+def get_mask_from_cache(mask_dict, h, mask_name, mask = None):
+
+    if h in mask_dict and (mask_name in mask_dict[h]):            
+        mask = mask_dict[h][mask_name].detach()
+    return mask
+
+def store_mask_in_cache(mask_dict, h, mask_name, mask):
+    mask_dict[h][mask_name] = mask.detach()
+    return mask_dict
+
 
 def register_attention_control_diffusers(model, controller, transform_coords = None):
     
@@ -256,29 +266,48 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
 
         b, f = mask_new_warped.shape[:2]
 
-        mask_new_warped = reshape_attention_mask(mask_new_warped, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]# b-1, 1, h, w
-        mask_warp = reshape_attention_mask(mask_warp, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]
-        amodal_mask = reshape_attention_mask(amodal_mask, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))
-        amodal_mask = binarize_tensor(amodal_mask.type_as(mask_new_warped) - mask_new_warped).detach()
+        h = int(np.sqrt(q_base.shape[2]))
+
+
+        if h in self.masks_cache_dict:
+            mask_new_warped = self.masks_cache_dict[h]["mask_new_warped"].detach()
+            mask_warp = self.masks_cache_dict[h]["mask_warp"].detach()
+            amodal_mask = self.masks_cache_dict[h]["amodal_mask"].detach()
+            mask_intersection = self.masks_cache_dict[h]["mask_intersection"].detach()
+            mask_1_empty = self.masks_cache_dict[h]["mask_1_empty"].detach()
+            mask_wo_edit = self.masks_cache_dict[h]["mask_wo_edit"].detach()
+            
+            h, w = mask_warp.shape[-2:]
+
+        else:
+            self.masks_cache_dict[h] = {}
+            mask_new_warped = reshape_attention_mask(mask_new_warped, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]# b-1, 1, h, w
+            mask_warp = reshape_attention_mask(mask_warp, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]
+            amodal_mask = reshape_attention_mask(amodal_mask, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))
+            amodal_mask = binarize_tensor(amodal_mask.type_as(mask_new_warped) - mask_new_warped).detach()
         
-        mask_intersection = binarize_tensor((mask_new_warped + amodal_mask) * mask_warp, 0.5)
-        # mask to inpaint
-        mask_1_empty = binarize_tensor((mask_warp - mask_intersection), 0.5)
+            mask_intersection = binarize_tensor((mask_new_warped + amodal_mask) * mask_warp, 0.5)
+            # mask to inpaint
+            mask_1_empty = binarize_tensor((mask_warp - mask_intersection), 0.5)
+            
+            h, w = mask_warp.shape[-2:]
+        
+            # if (h * w) >= 64**2:
+            #     # print("smoothing")
+            #     mask_1_empty = binarize_tensor(smooth_mask(mask_1_empty), 0.5)
+            
+            mask_wo_edit = binarize_tensor(torch.ones_like(mask_new_warped) - (mask_1_empty + mask_new_warped))
+
+            self.masks_cache_dict[h]["mask_new_warped"] = mask_new_warped.detach()
+            self.masks_cache_dict[h]["mask_warp"] = mask_warp.detach()
+            self.masks_cache_dict[h]["amodal_mask"] = amodal_mask.detach()
+            self.masks_cache_dict[h]["mask_intersection"] = mask_intersection.detach()
+            self.masks_cache_dict[h]["mask_1_empty"] = mask_1_empty.detach()
+            self.masks_cache_dict[h]["mask_wo_edit"] = mask_wo_edit.detach()
 
 
-        h, w = mask_warp.shape[-2:]
 
         distance_grid = DISTANCE_CLASS.get_coord_distance(h).detach()
-        # print(distance_grid.shape)
-        # exit()
-        
-        # print(mask_warp.shape, h *w, 32**2)
-        # if (h * w) >= 64**2:
-        #     # print("smoothing")
-        #     mask_1_empty = binarize_tensor(smooth_mask(mask_1_empty), 0.5)
-        
-        mask_wo_edit = binarize_tensor(torch.ones_like(mask_new_warped) - binarize_tensor(mask_1_empty + mask_new_warped + amodal_mask))
-
 
         if (h * w) >= 32**2:
             self.mask_wo_edit = mask_wo_edit.detach()
@@ -508,27 +537,48 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         amodal_mask = amodal_mask.type_as(mask_warp)
         b, f = mask_new_warped.shape[:2]
 
-        mask_new_warped = reshape_attention_mask(mask_new_warped, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]# b-1, 1, h, w
-        mask_warp = reshape_attention_mask(mask_warp, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]
-        amodal_mask = reshape_attention_mask(amodal_mask, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))
-        amodal_mask = binarize_tensor(amodal_mask.type_as(mask_new_warped) - mask_new_warped).detach()
+        h = int(np.sqrt(q_base.shape[2]))
         
+
+        if h in self.masks_cache_dict:
+            mask_new_warped = self.masks_cache_dict[h]["mask_new_warped"].detach()
+            mask_warp = self.masks_cache_dict[h]["mask_warp"].detach()
+            amodal_mask = self.masks_cache_dict[h]["amodal_mask"].detach()
+            mask_intersection = self.masks_cache_dict[h]["mask_intersection"].detach()
+            mask_1_empty = self.masks_cache_dict[h]["mask_1_empty"].detach()
+            mask_wo_edit = self.masks_cache_dict[h]["mask_wo_edit"].detach()
+            
+            h, w = mask_warp.shape[-2:]
+
+        else:
+            self.masks_cache_dict[h] = {}
+            mask_new_warped = reshape_attention_mask(mask_new_warped, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]# b-1, 1, h, w
+            mask_warp = reshape_attention_mask(mask_warp, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]
+            amodal_mask = reshape_attention_mask(amodal_mask, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))
+            amodal_mask = binarize_tensor(amodal_mask.type_as(mask_new_warped) - mask_new_warped).detach()
         
+            mask_intersection = binarize_tensor((mask_new_warped + amodal_mask) * mask_warp, 0.5)
+            # mask to inpaint
+            mask_1_empty = binarize_tensor((mask_warp - mask_intersection), 0.5)
+            
+            h, w = mask_warp.shape[-2:]
         
-        mask_intersection = binarize_tensor((mask_new_warped + amodal_mask) * mask_warp, 0.5)
-        # mask to inpaint
-        mask_1_empty = binarize_tensor((mask_warp - mask_intersection), 0.5)
+            # if (h * w) >= 64**2:
+            #     # print("smoothing")
+            #     mask_1_empty = binarize_tensor(smooth_mask(mask_1_empty), 0.5)
+            
+            mask_wo_edit = binarize_tensor(torch.ones_like(mask_new_warped) - (mask_1_empty + mask_new_warped))
+
+            self.masks_cache_dict[h]["mask_new_warped"] = mask_new_warped.detach()
+            self.masks_cache_dict[h]["mask_warp"] = mask_warp.detach()
+            self.masks_cache_dict[h]["amodal_mask"] = amodal_mask.detach()
+            self.masks_cache_dict[h]["mask_intersection"] = mask_intersection.detach()
+            self.masks_cache_dict[h]["mask_1_empty"] = mask_1_empty.detach()
+            self.masks_cache_dict[h]["mask_wo_edit"] = mask_wo_edit.detach()
+
+
         
-        h, w = mask_warp.shape[-2:]
         distance_grid = DISTANCE_CLASS.get_coord_distance(h).detach()
-        
-        # if (h * w) >= 64**2:
-        #     # print("smoothing")
-        #     mask_1_empty = binarize_tensor(smooth_mask(mask_1_empty), 0.5)
-        
-        mask_wo_edit = binarize_tensor(torch.ones_like(mask_new_warped) - (mask_1_empty + mask_new_warped))
-        
-        
         
         b, f, _, D = q_base.shape
         # Transform q_base to edit image        
@@ -849,6 +899,8 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         self.initialize_loss_log_dict()
         self.store_attention_maps = False
         self.initialize_default_loss_weights()
+        self.masks_cache_dict = {}
+
 
 
 

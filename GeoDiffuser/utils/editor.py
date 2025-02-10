@@ -666,14 +666,21 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
         mask_wo_edit = ((np.ones_like(mask_changed) - (mask_changed)) > 0.5) * 1.0
         p_image_new = (mask_wo_edit[..., None] * image + mask_edit[..., None] * p_image).astype("uint8")
         mask_source = ((mask_edit + mask_wo_edit) > 0.5) * 1.0
-        mask_template = ((mask_im + mask_wo_edit) > 0.5) * 1.0
+        # mask_template = ((mask_im + mask_wo_edit) > 0.5) * 1.0
         # edited_image = match_histograms(edited_image, image, channel_axis=-1)
+
+        # p_image_new is being used which is already a warped image
         edited_image = masked_histogram_matching(edited_image, p_image_new, mask_source, mask_source)
         # plt.imsave("./test.png", p_image_new)
     elif edit_type == "geometry_stitch":
         mask_edit = controller.mask_new_warped[0, 0].detach().cpu().numpy()
         edited_image = masked_histogram_matching(edited_image, image, 1.0 - mask_edit)
     elif edit_type == "geometry_remover":
+
+        # image_mask_hist = torch.from_numpy(image_mask[None])
+        # print(image_mask.shape, image_mask.max())
+        # image_mask_hist = torch_dilate(image_mask[None, None], 5)[0, 0].detach().cpu().numpy()
+        # print(image_mask_hist.shape, image_mask.shape, image_mask_hist.max(), image_mask.max())
         edited_image = masked_histogram_matching(edited_image, image, 1.0 - image_mask)
 
     images[-1] = edited_image

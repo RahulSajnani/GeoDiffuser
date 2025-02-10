@@ -227,7 +227,7 @@ with gr.Blocks() as demo:
                     minimum=0,
                     maximum=5,
                     step=0.01,
-                    value=0.1)
+                    value=0.5)
                 
                 with gr.Row():
                     depth_model = gr.Dropdown(label = "Depth Estimator", choices = ["midas_depth", "depth_anything", "constant_depth", "zoe_depth"], value = "depth_anything")
@@ -1151,7 +1151,7 @@ demo.launch(share=True, debug=True)
     
 
 # todo
-# improve color histogram post processing
+# improve color histogram post processing - checked no luck
 # increase speed by not performing bilinear interpolation repeatedly
 # Better amodal mask for editing
 # Check gradio demo and fix the issue of hanging
