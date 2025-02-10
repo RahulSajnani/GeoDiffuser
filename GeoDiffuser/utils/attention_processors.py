@@ -228,6 +228,22 @@ class EditProcessor:
         return hidden_states
 
 
+def background_preservation_loss(edit_out, replace_out, mask_wo_edit, eps=1e-8):
+
+    # with torch.no_grad():
+    #     # Do not get min distance from regions that are in the background
+    #     distance_weights = distance_grid.type_as(mask_wo_edit) + 100 * mask_wo_edit[:1, :1, :, 0]
+    #     distance_weights = 1.0 - torch.exp(-2 * torch.min(distance_weights, -1).values) # 1, hw
+        
+    # sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit * distance_weights[:, None, :, None]) / (torch.sum(mask_wo_edit * torch.ones_like(replace_out.detach()) * distance_weights[:, None, :, None]) + 1e-8))
+
+    sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit) / (torch.sum(mask_wo_edit.expand_as(replace_out)) + eps))
+
+
+    # sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit) / (torch.sum(mask_wo_edit * torch.ones_like(replace_out.detach())) + 1e-8))
+
+    return sim_loss
+
 def removal_loss_geodiff(replace_out_att, base_att, mask_inpaint, mask_wo_edit, distance_grid, num_features):
 
     
@@ -256,10 +272,49 @@ def removal_loss_geodiff(replace_out_att, base_att, mask_inpaint, mask_wo_edit, 
     
     
     # dissimilar_loss = -(torch.sum(torch.sum((((torch.abs(edit_out.detach() - replace_out)))), -1)[..., None] * mask_inpaint) / (torch.sum(mask_inpaint.expand_as(replace_out)) + 1e-8))
+
     # dissimilar_loss = get_correlation_loss_stitch(replace_out_att, mask_inpaint, mask_wo_edit, mask_inpaint)
 
+    # dissimilar_loss = -(torch.sum(torch.sum((((torch.abs(edit_out.detach() - replace_out)))), -1)[..., None] * mask_inpaint) / (torch.sum(mask_inpaint * torch.ones_like(replace_out.detach())) + 1e-8))
 
     return removal_loss
+
+
+def object_placement_loss_geodiff(edit_out, replace_out, mask_edit, eps=1e-8):
+
+    movement_loss = torch.sum(torch.abs(edit_out.detach() - replace_out) * mask_edit) / (torch.sum(mask_edit.expand_as(replace_out.detach())) + eps)
+
+    return movement_loss
+
+def amodal_loss_geodiff(edit_out, replace_out, mask_edit, distance_grid, amodal_mask, eps=1e-8):
+
+    interpolated_features, interpolation_weights = interpolate_from_mask(edit_out, mask_edit, distance_grid)
+    interpolated_features[:, :, mask_edit[0, 0, :, 0] > 0.5] = edit_out[:, :, mask_edit[0, 0, :, 0] > 0.5].detach().type_as(interpolated_features)
+    interpolated_features = smooth_attention_features(interpolated_features)
+    
+    # correlation_amodal = torch.bmm(replace_out_att[:, amodal_mask[0, 0, :, 0] > 0.5], base_att[:, mask_inpaint[0, 0, :, 0] > 0.5].permute(0, -1, 1).detach())
+
+    # correlation_amodal_loss = torch.sum(-torch.log(torch.max(correlation_amodal, -1).values + 1e-8)) / (torch.sum(torch.ones_like(correlation_amodal)) + 1e-8)
+
+
+    # interpolated_features, interpolation_weights = interpolate_from_mask(edit_out, mask_edit, distance_grid)
+    amodal_loss = (torch.sum((torch.abs(interpolated_features.detach() - replace_out)) * interpolation_weights[..., None] * amodal_mask) / (torch.sum(interpolation_weights[..., None] * amodal_mask.expand_as(replace_out.detach())) + eps))        
+
+    del interpolated_features, interpolation_weights
+
+    return amodal_loss
+
+def get_base_att_from_cache(batch_size, use_cfg, q, old_attention_map, coords_base):
+
+    with torch.no_grad():
+        if use_cfg:
+            ah = q.shape[0] // (2 * batch_size)
+        else:
+            ah = q.shape[0] // (batch_size)
+
+        base_att = old_attention_map[coords_base[0] * ah: coords_base[1] * ah]
+
+    return base_att
 
 def process_and_cache_masks(masks_cache_dict, h, image_mask, mask_new_warped, amodal_mask, transform_coords, q_base, q_edit_base):
 
@@ -363,8 +418,6 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         b, f, _, D = q_base.shape
         
         
-        
-        
         # Transform locations
 
         with torch.no_grad():
@@ -374,29 +427,12 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
             edit_base_att = compute_attention(q_edit_base, k_base.reshape(b*f, -1, D), scale, mask)
             edit_out = torch.bmm(edit_base_att, v_base.detach().reshape(b*f, -1, D))[None].detach()
         
-        
-        # edit_out = perform_attention(q_edit_base.reshape(b, f, -1, D), k_base.reshape(b, f, -1, D), v_base.reshape(b, f, -1, D), scale = scale).reshape(b*f, -1 ,D).detach()[None]
-        
-        
-        
         b, f, _, D = q_edit.shape
 
-        # if not (self.cur_step < int(self.num_steps * self.obj_edit_step)):
-        #     replace_out_att = compute_attention(q_edit.reshape(b*f, -1, D), k_base.detach().reshape(b*f, -1, D), scale, mask, fg_mask_warp = mask_new_warped, fg_mask = mask_warp)
-        #     replace_out = torch.bmm(replace_out_att, v_base.detach().reshape(b*f, -1, D)).reshape(b, f, -1, D) # 1, f, h*w, D
-
-        # else:
         replace_out_att = compute_attention(q_edit.reshape(b*f, -1, D), k_edit.reshape(b*f, -1, D), scale, mask)
         replace_out = torch.bmm(replace_out_att, v_base.detach().reshape(b*f, -1, D)).reshape(b, f, -1, D) # 1, f, h*w, D
         # replace_out = perform_attention(q_edit.reshape(b, f, -1, D), k_edit.reshape(b, f, -1, D), v_base.reshape(b, f, -1, D), scale = scale)
-        
 
-
-        # if not (self.cur_step < int(self.num_steps * self.obj_edit_step)):
-
-
-        #     replace_out_identity_att = compute_attention(q_edit.reshape(b*f, -1, D), k_edit.reshape(b*f, -1, D), scale, mask)
-        #     replace_out_identity = torch.bmm(replace_out_identity_att, v_edit.reshape(b*f, -1, D)).reshape(b, f, -1, D) 
         
         
         edit_out = edit_out.tile(replace_out.shape[0], 1, 1, 1) # b, f, h*w, D
@@ -422,47 +458,23 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
 
 
         if mask_inpaint.shape[2] >= 32 ** 2 and (not self.use_cfg):
-            interpolated_features, interpolation_weights = interpolate_from_mask(edit_out, mask_edit, distance_grid)
             
-            interpolated_features[:, :, mask_edit[0, 0, :, 0] > 0.5] = edit_out[:, :, mask_edit[0, 0, :, 0] > 0.5].detach().type_as(interpolated_features)
-            interpolated_features = smooth_attention_features(interpolated_features)
-
-            sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit) / (torch.sum(mask_wo_edit * torch.ones_like(replace_out.detach())) + 1e-8))
-
-            # movement_loss = (torch.sum((1 -  torch.exp((-torch.abs(edit_out.detach() - replace_out)))) * mask_edit) / (torch.sum(mask_edit * torch.ones_like(replace_out.detach())) + 1e-8))
+            # Get Reference Attention
+            base_att = get_base_att_from_cache(self.batch_size, self.use_cfg, q, old_attention_map, coords_base)
 
 
-            movement_loss = torch.sum(torch.abs(edit_out.detach() - replace_out) * mask_edit) / (torch.sum(mask_edit * torch.ones_like(replace_out.detach())) + 1e-8)
-            
-            
-            with torch.no_grad():
-                if self.use_cfg:
-                    ah = q.shape[0] // (2 * self.batch_size)
-                else:
-                    ah = q.shape[0] // (self.batch_size)
-
-                base_att = old_attention_map[coords_base[0] * ah: coords_base[1] * ah]
-                # base_att = compute_attention(q_base.reshape(b*f, -1, D), k_base.reshape(b*f, -1, D), scale, mask)
-
-            # Removal Loss
+            # Removal loss
             dissimilar_loss = removal_loss_geodiff(replace_out_att=replace_out_att, base_att=base_att, mask_inpaint=mask_inpaint, mask_wo_edit=mask_wo_edit, distance_grid=distance_grid, num_features=f)
 
+            # Background Preservation Loss
+            sim_loss = background_preservation_loss(edit_out=edit_out, replace_out=replace_out, mask_wo_edit=mask_wo_edit)
 
+            # Object Placement Loss 
+            movement_loss = object_placement_loss_geodiff(edit_out=edit_out, replace_out=replace_out, mask_edit=mask_edit)
 
-            # correlation_amodal = torch.bmm(replace_out_att[:, amodal_mask[0, 0, :, 0] > 0.5], base_att[:, mask_inpaint[0, 0, :, 0] > 0.5].permute(0, -1, 1).detach())
-
-            # correlation_amodal_loss = torch.sum(-torch.log(torch.max(correlation_amodal, -1).values + 1e-8)) / (torch.sum(torch.ones_like(correlation_amodal)) + 1e-8)
-
-
-
-            amodal_loss = (torch.sum((torch.abs(interpolated_features.detach() - replace_out)) * interpolation_weights[..., None] * amodal_mask) / (torch.sum(interpolation_weights[..., None] * amodal_mask * torch.ones_like(replace_out.detach())) + 1e-8))     
-
-            # amodal_loss = 0.0 * movement_loss
-            # correlation_amodal = torch.bmm(replace_out_att[:, amodal_mask[0, 0, :, 0] > 0.5], edit_base_att[:, :, ].permute(0, -1, 1).detach())
-
-
-            # amodal_loss = 
-
+            # Amodal Loss
+            amodal_loss = amodal_loss_geodiff(edit_out=edit_out, replace_out=replace_out, mask_edit=mask_edit, distance_grid=distance_grid, amodal_mask=amodal_mask)
+            
 
             if mask_inpaint.shape[2] <= 32 ** 2:
                 amodal_loss = 0.0 * movement_loss
@@ -486,14 +498,6 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
             self.loss_log_dict["num_layers"] += 1
             
             
-
-            # self.loss += (0.0 * dissociate_loss + 0.0 * att_loss + 10.0 * sim_loss + 10.0 * movement_loss + 0.0 *  dissociate_loss_2 + 8.0 * dissimilar_loss) / 3
-
-
-
-        
-        # edit_out[:, :, amodal_mask[0, 0, :, 0] > 0.5] = interpolated_features[:, :, amodal_mask[0, 0, :, 0] > 0.5].detach().type_as(edit_out)
-        # mask_edit = binarize_tensor(mask_edit + amodal_mask)
         
         if (self.cur_step < int(self.num_steps * self.obj_edit_step)):
             # Attention Sharing GeoDiffuser
@@ -534,8 +538,6 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         
         distance_grid = DISTANCE_CLASS.get_coord_distance(h).detach()
         
-
-        
         # Transform reference query locations
         with torch.no_grad():
             # Apply the edit transform to the reference query
@@ -574,88 +576,43 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
             self.mask_inpaint = mask_1_empty[0, 0].detach().clone()
 
 
-        # Compute loss for edit
+        # Compute loss for edit and log it
         if mask_inpaint.shape[2] >= 32 ** 2 and (not self.use_cfg):
-            interpolated_features, interpolation_weights = interpolate_from_mask(edit_out, mask_edit, distance_grid)
-
-            interpolated_features[:, :, mask_edit[0, 0, :, 0] > 0.5] = edit_out[:, :, mask_edit[0, 0, :, 0] > 0.5].detach().type_as(interpolated_features)
-            # print(interpolated_features.shape, edit_out.shape)
-            interpolated_features = smooth_attention_features(interpolated_features)
-
-            # sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit) / (torch.sum(mask_wo_edit * torch.ones_like(replace_out.detach())) + 1e-8))
-
-            
-            # dissimilar_loss = -(torch.sum(torch.sum((((torch.abs(edit_out.detach() - replace_out)))), -1)[..., None] * mask_inpaint) / (torch.sum(mask_inpaint * torch.ones_like(replace_out.detach())) + 1e-8))
-
-            with torch.no_grad():
-                if self.use_cfg:
-                    ah = q.shape[0] // (2 * self.batch_size)
-                else:
-                    ah = q.shape[0] // (self.batch_size)
-
-                base_att = old_attention_map[coords_base[0] * ah: coords_base[1] * ah]
+            # Get Reference Attention
+            base_att = get_base_att_from_cache(self.batch_size, self.use_cfg, q, old_attention_map, coords_base)
 
             # Removal loss
             dissimilar_loss = removal_loss_geodiff(replace_out_att=replace_out_att, base_att=base_att, mask_inpaint=mask_inpaint, mask_wo_edit=mask_wo_edit, distance_grid=distance_grid, num_features=f)
 
+            # Background Preservation Loss
+            sim_loss = background_preservation_loss(edit_out=edit_out, replace_out=replace_out, mask_wo_edit=mask_wo_edit)
 
-            # with torch.no_grad():
-            #     # Do not get min distance from regions that are in the background
-            #     distance_weights = distance_grid.type_as(mask_wo_edit) + 100 * mask_wo_edit[:1, :1, :, 0]
-            #     distance_weights = 1.0 - torch.exp(-2 * torch.min(distance_weights, -1).values) # 1, hw
-                
-            # sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit * distance_weights[:, None, :, None]) / (torch.sum(mask_wo_edit * torch.ones_like(replace_out.detach()) * distance_weights[:, None, :, None]) + 1e-8))
+            # Object Placement Loss 
+            movement_loss = object_placement_loss_geodiff(edit_out=edit_out, replace_out=replace_out, mask_edit=mask_edit)
 
-            sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit) / (torch.sum(mask_wo_edit.expand_as(replace_out)) + 1e-8))
-
-            # movement_loss = (torch.sum((1 -  torch.exp((-torch.abs(edit_out.detach() - replace_out)))) * mask_edit) / (torch.sum(mask_edit * torch.ones_like(replace_out.detach())) + 1e-8))
-            movement_loss = torch.sum(torch.abs(edit_out.detach() - replace_out) * mask_edit) / (torch.sum(mask_edit * torch.ones_like(replace_out.detach())) + 1e-8)
-
-
-            
-
-            # correlation_amodal = torch.bmm(replace_out_att[:, amodal_mask[0, 0, :, 0] > 0.5], base_att[:, mask_inpaint[0, 0, :, 0] > 0.5].permute(0, -1, 1).detach())
-
-            # correlation_amodal_loss = torch.sum(-torch.log(torch.max(correlation_amodal, -1).values + 1e-8)) / (torch.sum(torch.ones_like(correlation_amodal)) + 1e-8)
-
-
-            # interpolated_features, interpolation_weights = interpolate_from_mask(edit_out, mask_edit, distance_grid)
-            amodal_loss = (torch.sum((torch.abs(interpolated_features.detach() - replace_out)) * interpolation_weights[..., None] * amodal_mask) / (torch.sum(interpolation_weights[..., None] * amodal_mask * torch.ones_like(replace_out.detach())) + 1e-8))        
-
-
-            # print(interpolated_features.shape, interpolation_weights.shape, replace_out.shape)
-            # print(amodal_loss)
-
+            # Amodal Loss
+            amodal_loss = amodal_loss_geodiff(edit_out=edit_out, replace_out=replace_out, mask_edit=mask_edit, distance_grid=distance_grid, amodal_mask=amodal_mask)
 
             if mask_inpaint.shape[2] <= 32 ** 2:
                 amodal_loss = 0.0 * movement_loss
-
-            
             
             dissociate_loss, att_loss, dissociate_loss_2 = 0, 0, 0
             smoothness_loss, _, _ = get_smoothness_loss(replace_out)
 
-            # if mask_inpaint.shape[2] >= 64 ** 2:
-            #     smoothness_loss, _, _ = get_smoothness_loss(replace_out)
-            # else:
-            #     smoothness_loss = 0.0 * movement_loss
 
             lw = self.loss_weight_dict["self"]
             self.loss += lw["sim"] * sim_loss + lw["movement"] * movement_loss + lw["removal"] * dissimilar_loss + lw["smoothness"] * smoothness_loss + lw["amodal"] * amodal_loss
-
             
             loss_log_dict = {"sim": sim_loss, "movement": movement_loss, "removal": dissimilar_loss, "smoothness": smoothness_loss, "amodal": amodal_loss}
             self.loss_log_dict["self"] = update_loss_log_dict(self.loss_log_dict["self"], loss_log_dict) 
             self.loss_log_dict["num_layers"] += 1
-            
-            
 
-            # self.loss += (0.0 * dissociate_loss + 0.0 * att_loss + 55.0 * sim_loss + 20.0 * movement_loss + 0.0 * dissociate_loss_2 + 13.0 * dissimilar_loss) / 3
 
-        # mask_edit = binarize_tensor(mask_edit + amodal_mask)
-
+            # self.loss += (0.0 * dissociate_loss + 0.0 * att_loss + 10.0 * sim_loss + 10.0 * movement_loss + 0.0 *  dissociate_loss_2 + 8.0 * dissimilar_loss) / 3
         # edit_out[:, :, amodal_mask[0, 0, :, 0] > 0.5] = interpolated_features[:, :, amodal_mask[0, 0, :, 0] > 0.5].detach().type_as(edit_out)
         # mask_edit = binarize_tensor(mask_edit + amodal_mask)
+
+            
 
         if self.cur_step < int(self.num_steps * self.obj_edit_step):
             # Attention Sharing GeoDiffuser
@@ -861,12 +818,6 @@ class AttentionGeometryRemover(AttentionStore, abc.ABC):
 
         if mask_inpaint.shape[2] >= 32 ** 2 and (not self.use_cfg):
 
-
-
-            # dissimilar_loss = - (torch.sum(torch.min((torch.sum(torch.abs(replace_out[:, :, mask_inpaint[0, 0, :, 0] > 0.5][:, :, :, None] - edit_out[:, :, mask_inpaint[0, 0, :, 0] > 0.5][:, :, None].detach()), -1)), -1).values) / (torch.sum(mask_inpaint.expand_as(replace_out)) * 8 + 1e-8)) # b, 8, M_#
-
-            # print(dissimilar_loss, " cross")
-            # dissimilar_loss = -(torch.sum(torch.sum((((torch.abs(edit_out.detach() - replace_out)))), -1)[..., None] * mask_inpaint) / (torch.sum(mask_inpaint.expand_as(replace_out)) + 1e-8))
             sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit) / (torch.sum(mask_wo_edit.expand_as(replace_out)) + 1e-8))
 
             # correlation = torch.bmm(replace_out_att[:, mask_inpaint[0, 0, :, 0] > 0.5], edit_base_att.permute(0, -1, 1).detach())
