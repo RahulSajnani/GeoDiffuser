@@ -228,6 +228,95 @@ class EditProcessor:
         return hidden_states
 
 
+def removal_loss_geodiff(replace_out_att, base_att, mask_inpaint, mask_wo_edit, distance_grid, num_features):
+
+    
+    correlation = torch.bmm(replace_out_att[:, mask_inpaint[0, 0, :, 0] > 0.5], base_att.permute(0, -1, 1).detach())
+    correlation_inpaint = correlation * mask_inpaint[..., 0]
+    correlation_wo_edit = correlation * mask_wo_edit[..., 0]
+
+    # p_correlation_inpaint = torch.max(correlation_inpaint, -1).values
+    # p_correlation_wo_edit = torch.max(correlation_wo_edit, -1).values
+
+    # dissimilar_loss = torch.sum(-torch.log(p_correlation_wo_edit + 1e-4) + torch.log(p_correlation_inpaint + 1e-4)) / (torch.sum(mask_inpaint) * f + 1e-8)
+
+    m_c_inpaint = torch.max(correlation_inpaint, -1)
+    m_c_wo_edit = torch.max(correlation_wo_edit, -1)
+
+    p_correlation_inpaint, d_inpaint = m_c_inpaint.values, distance_grid[:, mask_inpaint[0, 0, :, 0] > 0.5, m_c_inpaint.indices]
+    p_correlation_wo_edit, d_wo_edit = m_c_wo_edit.values, distance_grid[:, mask_inpaint[0, 0, :, 0] > 0.5, m_c_wo_edit.indices]
+
+    with torch.no_grad():
+        d_weight = torch.exp(-d_wo_edit.detach())
+        
+    removal_loss = torch.sum(d_weight.detach() * (-torch.log(p_correlation_wo_edit + 1e-4) + torch.log(p_correlation_inpaint + 1e-4))) / (torch.sum(mask_inpaint) * num_features + 1e-8)
+
+    del m_c_inpaint, m_c_wo_edit, p_correlation_inpaint, p_correlation_wo_edit, d_inpaint, d_wo_edit
+
+    
+    
+    # dissimilar_loss = -(torch.sum(torch.sum((((torch.abs(edit_out.detach() - replace_out)))), -1)[..., None] * mask_inpaint) / (torch.sum(mask_inpaint.expand_as(replace_out)) + 1e-8))
+    # dissimilar_loss = get_correlation_loss_stitch(replace_out_att, mask_inpaint, mask_wo_edit, mask_inpaint)
+
+
+    return removal_loss
+
+def process_and_cache_masks(masks_cache_dict, h, image_mask, mask_new_warped, amodal_mask, transform_coords, q_base, q_edit_base):
+
+    if h in masks_cache_dict:
+
+        # Check block below for description of each item in cache
+        mask_new_warped = masks_cache_dict[h]["mask_new_warped"].detach()
+        mask_warp = masks_cache_dict[h]["mask_warp"].detach()
+        amodal_mask = masks_cache_dict[h]["amodal_mask"].detach()
+        mask_intersection = masks_cache_dict[h]["mask_intersection"].detach()
+        mask_1_empty = masks_cache_dict[h]["mask_1_empty"].detach()
+        mask_wo_edit = masks_cache_dict[h]["mask_wo_edit"].detach()
+        t_coords_q = masks_cache_dict[h]["t_coords_q"].detach()
+        
+        return masks_cache_dict, image_mask, mask_new_warped, mask_warp, amodal_mask, mask_intersection, mask_1_empty, mask_wo_edit, t_coords_q
+
+    else:
+        masks_cache_dict[h] = {}
+
+        # input mask
+        image_mask = image_mask.type_as(q_base).detach()
+        # Amodal mask after projection
+        amodal_mask = amodal_mask.detach()
+        # Mask to be projected (before projection)
+        mask_warp = binarize_tensor(image_mask.type_as(q_base))[:, None]
+
+        # Mask after projection
+        mask_new_warped = reshape_attention_mask(mask_new_warped, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]# b-1, 1, h, w
+        mask_warp = reshape_attention_mask(mask_warp, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]
+        amodal_mask = reshape_attention_mask(amodal_mask, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))
+        amodal_mask = binarize_tensor(amodal_mask.type_as(mask_new_warped) - mask_new_warped).detach()
+
+        # Mask of intersection between (warped + amodal mask) * original mask
+        mask_intersection = binarize_tensor((mask_new_warped + amodal_mask) * mask_warp, 0.5)
+        
+        # mask of object to inpaint. We subtract the intersection area
+        mask_1_empty = binarize_tensor((mask_warp - mask_intersection), 0.5)
+            
+        # if (h * w) >= 64**2:
+        #     mask_1_empty = binarize_tensor(smooth_mask(mask_1_empty), 0.5)
+        
+        # Mask without any edit. 1.0 - (warped_mask + input_mask)
+        mask_wo_edit = binarize_tensor(torch.ones_like(mask_new_warped) - (mask_1_empty + mask_new_warped))
+        
+        # Projection coordinates to perform the geometric edit
+        t_coords_q = reshape_transform_coords(transform_coords, in_mat_shape=q_edit_base.shape).tile(q_edit_base.shape[0], 1, 1, 1).type_as(q_edit_base)
+
+        masks_cache_dict[h]["mask_new_warped"] = mask_new_warped.detach()
+        masks_cache_dict[h]["mask_warp"] = mask_warp.detach()
+        masks_cache_dict[h]["amodal_mask"] = amodal_mask.detach()
+        masks_cache_dict[h]["mask_intersection"] = mask_intersection.detach()
+        masks_cache_dict[h]["mask_1_empty"] = mask_1_empty.detach()
+        masks_cache_dict[h]["mask_wo_edit"] = mask_wo_edit.detach()
+        masks_cache_dict[h]["t_coords_q"] = t_coords_q.detach()
+
+        return masks_cache_dict, image_mask, mask_new_warped, mask_warp, amodal_mask, mask_intersection, mask_1_empty, mask_wo_edit, t_coords_q
+        
 
 
 class AttentionGeometryEdit(AttentionStore, abc.ABC):
@@ -242,71 +331,28 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         q_base, k_base, v_base, q_edit, k_edit, v_edit = get_base_edit_qkv(q, k, v, self.batch_size, coords_base = coords_base, coords_edit = coords_edit, use_cfg = self.use_cfg)
         
         
-        self.image_mask = self.image_mask.type_as(q_base).detach()
-        t_coords_m = reshape_transform_coords(transform_coords, in_mat_shape=self.image_mask.shape).tile(self.image_mask.shape[0], 1, 1, 1).type_as(q_base)
         
         if self.mask_new_warped is None:
+            t_coords_m = reshape_transform_coords(transform_coords, in_mat_shape=self.image_mask.shape).tile(self.image_mask.shape[0], 1, 1, 1).type_as(q_base)
+
             mask_new_warped = binarize_tensor(warp_grid_edit(self.image_mask[:, None], t_coords_m, padding_mode='zeros', align_corners=True, mode=self.mode))
             self.mask_new_warped = mask_new_warped.detach()
         else:
             mask_new_warped = self.mask_new_warped.detach()
 
 
-        amodal_mask = self.amodal_mask.detach()
-
-
-
-
-        # print(amodal_mask.shape, mask_new_warped.shape, " amodal mask shape vs mask new warped shape")
-
-        mask_warp = binarize_tensor(self.image_mask)[:, None]
-        # print(amodal_mask.shape, mask_warp.shape)
-        amodal_mask = amodal_mask.type_as(mask_warp)
-
-
-        b, f = mask_new_warped.shape[:2]
 
         h = int(np.sqrt(q_base.shape[2]))
+        b, f, _, D = q_base.shape
 
+        # Transform q_base to edit image        
+        q_edit_base = q_base.permute(0, 1, -1, 2).reshape(b, f, D, h, h).reshape(-1, D, h, h)
 
-        if h in self.masks_cache_dict:
-            mask_new_warped = self.masks_cache_dict[h]["mask_new_warped"].detach()
-            mask_warp = self.masks_cache_dict[h]["mask_warp"].detach()
-            amodal_mask = self.masks_cache_dict[h]["amodal_mask"].detach()
-            mask_intersection = self.masks_cache_dict[h]["mask_intersection"].detach()
-            mask_1_empty = self.masks_cache_dict[h]["mask_1_empty"].detach()
-            mask_wo_edit = self.masks_cache_dict[h]["mask_wo_edit"].detach()
-            
-            h, w = mask_warp.shape[-2:]
+        # Get Masks from cache
+        self.masks_cache_dict, self.image_mask, mask_new_warped, mask_warp, amodal_mask, mask_intersection, mask_1_empty, mask_wo_edit, t_coords_q = process_and_cache_masks(self.masks_cache_dict, h, self.image_mask, mask_new_warped, self.amodal_mask, transform_coords, q_base, q_edit_base)
+        h, w = mask_warp.shape[-2:]
 
-        else:
-            self.masks_cache_dict[h] = {}
-            mask_new_warped = reshape_attention_mask(mask_new_warped, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]# b-1, 1, h, w
-            mask_warp = reshape_attention_mask(mask_warp, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]
-            amodal_mask = reshape_attention_mask(amodal_mask, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))
-            amodal_mask = binarize_tensor(amodal_mask.type_as(mask_new_warped) - mask_new_warped).detach()
-        
-            mask_intersection = binarize_tensor((mask_new_warped + amodal_mask) * mask_warp, 0.5)
-            # mask to inpaint
-            mask_1_empty = binarize_tensor((mask_warp - mask_intersection), 0.5)
-            
-            h, w = mask_warp.shape[-2:]
-        
-            # if (h * w) >= 64**2:
-            #     # print("smoothing")
-            #     mask_1_empty = binarize_tensor(smooth_mask(mask_1_empty), 0.5)
-            
-            mask_wo_edit = binarize_tensor(torch.ones_like(mask_new_warped) - (mask_1_empty + mask_new_warped))
-
-            self.masks_cache_dict[h]["mask_new_warped"] = mask_new_warped.detach()
-            self.masks_cache_dict[h]["mask_warp"] = mask_warp.detach()
-            self.masks_cache_dict[h]["amodal_mask"] = amodal_mask.detach()
-            self.masks_cache_dict[h]["mask_intersection"] = mask_intersection.detach()
-            self.masks_cache_dict[h]["mask_1_empty"] = mask_1_empty.detach()
-            self.masks_cache_dict[h]["mask_wo_edit"] = mask_wo_edit.detach()
-
-
-
+        # get distance grid for removal loss
         distance_grid = DISTANCE_CLASS.get_coord_distance(h).detach()
 
         if (h * w) >= 32**2:
@@ -318,20 +364,15 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         
         
         
-        # Transform q_base to edit image        
-        q_edit_base = q_base.permute(0, 1, -1, 2).reshape(b, f, D, h, w).reshape(-1, D, h, w)
-        t_coords_q = reshape_transform_coords(transform_coords, in_mat_shape=q_edit_base.shape).tile(q_edit_base.shape[0], 1, 1, 1).type_as(q_edit_base)
         
         # Transform locations
-        q_edit_base = q_edit_base * (1.0 - mask_new_warped) + mask_new_warped * warp_grid_edit(q_edit_base, t_coords_q, padding_mode='zeros', align_corners=True, mode=self.mode)
-        
-        q_edit_base = q_edit_base.reshape(b, f, D, h, w).reshape(b, f, D, -1).permute(0, 1, -1, 2).reshape(-1, h*w, D)
 
-        
-        
+        with torch.no_grad():
+            q_edit_base = q_edit_base * (1.0 - mask_new_warped) + mask_new_warped * warp_grid_edit(q_edit_base, t_coords_q, padding_mode='zeros', align_corners=True, mode=self.mode)
+            q_edit_base = q_edit_base.reshape(b, f, D, h, w).reshape(b, f, D, -1).permute(0, 1, -1, 2).reshape(-1, h*w, D)
 
-        edit_base_att = compute_attention(q_edit_base, k_base.reshape(b*f, -1, D), scale, mask)
-        edit_out = torch.bmm(edit_base_att, v_base.detach().reshape(b*f, -1, D))[None].detach()
+            edit_base_att = compute_attention(q_edit_base, k_base.reshape(b*f, -1, D), scale, mask)
+            edit_out = torch.bmm(edit_base_att, v_base.detach().reshape(b*f, -1, D))[None].detach()
         
         
         # edit_out = perform_attention(q_edit_base.reshape(b, f, -1, D), k_base.reshape(b, f, -1, D), v_base.reshape(b, f, -1, D), scale = scale).reshape(b*f, -1 ,D).detach()[None]
@@ -383,34 +424,11 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         if mask_inpaint.shape[2] >= 32 ** 2 and (not self.use_cfg):
             interpolated_features, interpolation_weights = interpolate_from_mask(edit_out, mask_edit, distance_grid)
             
-
-
-            # print(interpolated_features.shape, edit_out.shape)
             interpolated_features[:, :, mask_edit[0, 0, :, 0] > 0.5] = edit_out[:, :, mask_edit[0, 0, :, 0] > 0.5].detach().type_as(interpolated_features)
-            # print(interpolated_features.shape, edit_out.shape)
             interpolated_features = smooth_attention_features(interpolated_features)
-            # exit()
-            
 
-
-            # dissimilar_loss = -(torch.sum(torch.sum((((torch.abs(edit_out.detach() - replace_out)))), -1)[..., None] * mask_inpaint) / (torch.sum(mask_inpaint * torch.ones_like(replace_out.detach())) + 1e-8))
-            # dissimilar_loss = -(torch.sum(torch.sum((((torch.abs(edit_out.detach() - replace_out)))), -1)[..., None] * mask_inpaint) / (torch.sum(mask_inpaint.expand_as(replace_out)) + 1e-8))
-
-            # dissimilar_loss = get_correlation_loss_stitch(compute_attention(q_edit.reshape(b*f, -1, D), q_base.detach().reshape(b*f, -1, D), scale, mask), mask_inpaint, mask_wo_edit, mask_inpaint)
-
-
-
-            # print(sim_loss)
-
-            # with torch.no_grad():
-            #     # Do not get min distance from regions that are in the background
-            #     distance_weights = distance_grid.type_as(mask_wo_edit) + 100 * mask_wo_edit[:1, :1, :, 0]
-            #     distance_weights = 1.0 - torch.exp(-2 * torch.min(distance_weights, -1).values) # 1, hw
-            # sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit * distance_weights[:, None, :, None]) / (torch.sum(mask_wo_edit * torch.ones_like(replace_out.detach()) * distance_weights[:, None, :, None]) + 1e-8))
-
-            # print(sim_loss)
-            # exit()
             sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit) / (torch.sum(mask_wo_edit * torch.ones_like(replace_out.detach())) + 1e-8))
+
             # movement_loss = (torch.sum((1 -  torch.exp((-torch.abs(edit_out.detach() - replace_out)))) * mask_edit) / (torch.sum(mask_edit * torch.ones_like(replace_out.detach())) + 1e-8))
 
 
@@ -426,23 +444,9 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
                 base_att = old_attention_map[coords_base[0] * ah: coords_base[1] * ah]
                 # base_att = compute_attention(q_base.reshape(b*f, -1, D), k_base.reshape(b*f, -1, D), scale, mask)
 
-            correlation = torch.bmm(replace_out_att[:, mask_inpaint[0, 0, :, 0] > 0.5], base_att.permute(0, -1, 1).detach())
+            # Removal Loss
+            dissimilar_loss = removal_loss_geodiff(replace_out_att=replace_out_att, base_att=base_att, mask_inpaint=mask_inpaint, mask_wo_edit=mask_wo_edit, distance_grid=distance_grid, num_features=f)
 
-            correlation_inpaint = correlation * mask_inpaint[..., 0]
-            correlation_wo_edit = correlation * mask_wo_edit[..., 0]
-
-            m_c_inpaint = torch.max(correlation_inpaint, -1)
-            m_c_wo_edit = torch.max(correlation_wo_edit, -1)
-
-            p_correlation_inpaint, d_inpaint = m_c_inpaint.values, distance_grid[:, mask_inpaint[0, 0, :, 0] > 0.5, m_c_inpaint.indices]
-            p_correlation_wo_edit, d_wo_edit = m_c_wo_edit.values, distance_grid[:, mask_inpaint[0, 0, :, 0] > 0.5, m_c_wo_edit.indices]
-
-
-            with torch.no_grad():
-                d_weight = torch.exp(-d_wo_edit.detach())
-
-            dissimilar_loss = torch.sum(d_weight.detach() * (-torch.log(p_correlation_wo_edit + 1e-4) + torch.log(p_correlation_inpaint + 1e-4))) / (torch.sum(mask_inpaint) * f + 1e-8)
-            del m_c_inpaint, m_c_wo_edit
 
 
             # correlation_amodal = torch.bmm(replace_out_att[:, amodal_mask[0, 0, :, 0] > 0.5], base_att[:, mask_inpaint[0, 0, :, 0] > 0.5].permute(0, -1, 1).detach())
@@ -492,15 +496,11 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         # mask_edit = binarize_tensor(mask_edit + amodal_mask)
         
         if (self.cur_step < int(self.num_steps * self.obj_edit_step)):
+            # Attention Sharing GeoDiffuser
             out_return = edit_out.detach() * (mask_edit) + replace_out * (1.0 - mask_edit) #mask_inpaint + replace_out * mask_wo_edit
-        # elif mask_inpaint.shape[2] <= 16 ** 2:
-        #     out_return = edit_out.detach() * (mask_edit) + replace_out * (1.0 - mask_edit)
         else:
+            # Diffusion Correction
             out_return = replace_out
-            # print("identity")
-            # out_return = replace_out_identity * (1.0 - mask_edit) + edit_out.detach() * mask_edit
-            # out_return = replace_out_identity * (mask_edit) + replace_out_identity * mask_inpaint + replace_out * mask_wo_edit
-        
         return out_return
 
         
@@ -511,11 +511,10 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         
         q_base, k_base, v_base, q_edit, k_edit, v_edit = get_base_edit_qkv(q, k, v, self.batch_size, coords_base = coords_base, coords_edit = coords_edit, use_cfg = self.use_cfg)
         
-        self.image_mask = self.image_mask.type_as(q_base).detach()
-        t_coords_m = reshape_transform_coords(transform_coords, in_mat_shape=self.image_mask.shape).tile(self.image_mask.shape[0], 1, 1, 1).type_as(q_base)
         
 
         if self.mask_new_warped is None:
+            t_coords_m = reshape_transform_coords(transform_coords, in_mat_shape=self.image_mask.shape).tile(self.image_mask.shape[0], 1, 1, 1).type_as(q_base)
             mask_new_warped = binarize_tensor(warp_grid_edit(self.image_mask[:, None], t_coords_m, padding_mode='zeros', align_corners=True, mode=self.mode))
             self.mask_new_warped = mask_new_warped.detach()
 
@@ -523,115 +522,48 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
             mask_new_warped = self.mask_new_warped.detach()
 
 
-        amodal_mask = self.amodal_mask.detach()
-
-        # amodal_mask = binarize_tensor(self.amodal_mask.type_as(mask_new_warped) - mask_new_warped).detach()
-
-        # print(amodal_mask.shape, mask_new_warped.shape, " amodal mask shape vs mask new warped shape")
-            
-
-        mask_warp = binarize_tensor(self.image_mask.type_as(q_base))[:, None]
-        # print(amodal_mask.shape, mask_warp.shape)
-        # exit()
-
-        amodal_mask = amodal_mask.type_as(mask_warp)
-        b, f = mask_new_warped.shape[:2]
-
         h = int(np.sqrt(q_base.shape[2]))
-        
-
-        if h in self.masks_cache_dict:
-            mask_new_warped = self.masks_cache_dict[h]["mask_new_warped"].detach()
-            mask_warp = self.masks_cache_dict[h]["mask_warp"].detach()
-            amodal_mask = self.masks_cache_dict[h]["amodal_mask"].detach()
-            mask_intersection = self.masks_cache_dict[h]["mask_intersection"].detach()
-            mask_1_empty = self.masks_cache_dict[h]["mask_1_empty"].detach()
-            mask_wo_edit = self.masks_cache_dict[h]["mask_wo_edit"].detach()
-            
-            h, w = mask_warp.shape[-2:]
-
-        else:
-            self.masks_cache_dict[h] = {}
-            mask_new_warped = reshape_attention_mask(mask_new_warped, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]# b-1, 1, h, w
-            mask_warp = reshape_attention_mask(mask_warp, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))[1:]
-            amodal_mask = reshape_attention_mask(amodal_mask, in_mat_shape=(1, int(np.sqrt(q_base.shape[2]))))
-            amodal_mask = binarize_tensor(amodal_mask.type_as(mask_new_warped) - mask_new_warped).detach()
-        
-            mask_intersection = binarize_tensor((mask_new_warped + amodal_mask) * mask_warp, 0.5)
-            # mask to inpaint
-            mask_1_empty = binarize_tensor((mask_warp - mask_intersection), 0.5)
-            
-            h, w = mask_warp.shape[-2:]
-        
-            # if (h * w) >= 64**2:
-            #     # print("smoothing")
-            #     mask_1_empty = binarize_tensor(smooth_mask(mask_1_empty), 0.5)
-            
-            mask_wo_edit = binarize_tensor(torch.ones_like(mask_new_warped) - (mask_1_empty + mask_new_warped))
-
-            self.masks_cache_dict[h]["mask_new_warped"] = mask_new_warped.detach()
-            self.masks_cache_dict[h]["mask_warp"] = mask_warp.detach()
-            self.masks_cache_dict[h]["amodal_mask"] = amodal_mask.detach()
-            self.masks_cache_dict[h]["mask_intersection"] = mask_intersection.detach()
-            self.masks_cache_dict[h]["mask_1_empty"] = mask_1_empty.detach()
-            self.masks_cache_dict[h]["mask_wo_edit"] = mask_wo_edit.detach()
-
-
-        
-        distance_grid = DISTANCE_CLASS.get_coord_distance(h).detach()
         
         b, f, _, D = q_base.shape
         # Transform q_base to edit image        
-        q_edit_base = q_base.permute(0, 1, -1, 2).reshape(b, f, D, h, w).reshape(-1, D, h, w)
-        t_coords_q = reshape_transform_coords(transform_coords, in_mat_shape=q_edit_base.shape).tile(q_edit_base.shape[0], 1, 1, 1).type_as(q_edit_base)
+        q_edit_base = q_base.permute(0, 1, -1, 2).reshape(b, f, D, h, h).reshape(-1, D, h, h)
+
+        self.masks_cache_dict, self.image_mask, mask_new_warped, mask_warp, amodal_mask, mask_intersection, mask_1_empty, mask_wo_edit, t_coords_q = process_and_cache_masks(self.masks_cache_dict, h, self.image_mask, mask_new_warped, self.amodal_mask, transform_coords, q_base, q_edit_base)
+
+        h, w = mask_warp.shape[-2:]
         
-        # Transform locations
-        q_edit_base = q_edit_base * (1.0 - mask_new_warped) + mask_new_warped * warp_grid_edit(q_edit_base, t_coords_q, padding_mode='zeros', align_corners=True, mode=self.mode)
+        distance_grid = DISTANCE_CLASS.get_coord_distance(h).detach()
         
-        q_edit_base = q_edit_base.reshape(b, f, D, h, w).reshape(b, f, D, -1).permute(0, 1, -1, 2).reshape(-1, h*w, D)
+
         
-        
-        edit_base_att = compute_attention(q_edit_base, k_base.reshape(b*f, -1, D), scale, mask)
-        edit_out = torch.bmm(edit_base_att, v_base.detach().reshape(b*f, -1, D))[None].detach()
+        # Transform reference query locations
+        with torch.no_grad():
+            # Apply the edit transform to the reference query
+            q_edit_base = q_edit_base * (1.0 - mask_new_warped) + mask_new_warped * warp_grid_edit(q_edit_base, t_coords_q, padding_mode='zeros', align_corners=True, mode=self.mode)
+            q_edit_base = q_edit_base.reshape(b, f, D, h, w).reshape(b, f, D, -1).permute(0, 1, -1, 2).reshape(-1, h*w, D)
+            
+            # Compute the reference query attention
+            edit_base_att = compute_attention(q_edit_base, k_base.reshape(b*f, -1, D), scale, mask)
+            edit_out = torch.bmm(edit_base_att, v_base.detach().reshape(b*f, -1, D))[None].detach()
         
         
         b, f, _, D = q_edit.shape
 
-        # q_edit_adain = adain(q_edit.reshape(b*f, -1, D), q_base.detach().reshape(b*f, -1, D))
-
-        # if not (self.cur_step < int(self.num_steps * self.obj_edit_step)):
+        # Get the edit attention with value for k_base (k_ref)
         replace_out_att = compute_attention(q_edit.reshape(b*f, -1, D), k_base.detach().reshape(b*f, -1, D), scale, mask, fg_mask_warp = mask_new_warped, fg_mask = mask_warp, inpaint_mask = mask_wo_edit)
+        # Perform the attention with reference values
         replace_out = torch.bmm(replace_out_att, v_base.detach().reshape(b*f, -1, D)).reshape(b, f, -1, D) # 1, f, h*w, D
-        
-        # else:
+        edit_out = edit_out.tile(replace_out.shape[0], 1, 1, 1) # b, f, h*w, D
+                
 
-        #     replace_out_att = compute_attention(q_edit.reshape(b*f, -1, D), k_base.detach().reshape(b*f, -1, D), scale, mask)
-        #     replace_out = torch.bmm(replace_out_att, v_base.detach().reshape(b*f, -1, D)).reshape(b, f, -1, D) # 1, f, h*w, D
-        
 
         if self.use_cfg and self.store_attention_maps: 
-            # print(q_edit.shape)
-
+            # Store Attention if Needed
             self.attn_store(replace_out_att, is_cross=False, place_in_unet = place_in_unet)
 
-        # edit_out = perform_attention(q_edit_base.reshape(b, f, -1, D), k_base.reshape(b, f, -1, D), v_base.reshape(b, f, -1, D), scale = scale).reshape(b*f, -1 ,D).detach()[None]
+                
         
-        
-        
-        # b, f, _, D = q_edit.shape
-        # replace_out_att = compute_attention(q_edit.reshape(b*f, -1, D), k_edit.reshape(b*f, -1, D), scale, mask)
-        # replace_out = torch.bmm(replace_out_att, v_base.reshape(b*f, -1, D)).reshape(b, f, -1, D) # 1, f, h*w, D
-        # replace_out = perform_attention(q_edit.reshape(b, f, -1, D), k_edit.reshape(b, f, -1, D), v_base.reshape(b, f, -1, D), scale = scale)
-
-
-        # if not (self.cur_step < int(self.num_steps * self.obj_edit_step)):
-
-        #     replace_out_identity_att = compute_attention(q_edit.reshape(b*f, -1, D), k_edit.reshape(b*f, -1, D), scale, mask)
-        #     replace_out_identity = torch.bmm(replace_out_identity_att, v_edit.reshape(b*f, -1, D)).reshape(b, f, -1, D) 
-        
-        edit_out = edit_out.tile(replace_out.shape[0], 1, 1, 1) # b, f, h*w, D
-        
-        
+        # Reshape masks (misc operations)
         mask_inpaint = mask_1_empty[0, 0].reshape(-1)[None, None, :, None]
         mask_wo_edit = mask_wo_edit[0, 0].reshape(-1)[None, None, :, None]
         mask_edit = mask_new_warped[0, 0].reshape(-1)[None, None, :, None]
@@ -640,14 +572,9 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         
         if mask_inpaint.shape[2] >= 32 ** 2:
             self.mask_inpaint = mask_1_empty[0, 0].detach().clone()
-        
-        
-
-        # if (self.cur_step < int(self.num_steps * 0.6)):
-        #     edit_out = smooth_attention_features(edit_out.detach())
 
 
-
+        # Compute loss for edit
         if mask_inpaint.shape[2] >= 32 ** 2 and (not self.use_cfg):
             interpolated_features, interpolation_weights = interpolate_from_mask(edit_out, mask_edit, distance_grid)
 
@@ -661,62 +588,16 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
             # dissimilar_loss = -(torch.sum(torch.sum((((torch.abs(edit_out.detach() - replace_out)))), -1)[..., None] * mask_inpaint) / (torch.sum(mask_inpaint * torch.ones_like(replace_out.detach())) + 1e-8))
 
             with torch.no_grad():
-
                 if self.use_cfg:
                     ah = q.shape[0] // (2 * self.batch_size)
                 else:
                     ah = q.shape[0] // (self.batch_size)
 
                 base_att = old_attention_map[coords_base[0] * ah: coords_base[1] * ah]
-                # base_att = compute_attention(q_base.reshape(b*f, -1, D), k_base.reshape(b*f, -1, D), scale, mask)
-                # print(base_att.shape)
 
+            # Removal loss
+            dissimilar_loss = removal_loss_geodiff(replace_out_att=replace_out_att, base_att=base_att, mask_inpaint=mask_inpaint, mask_wo_edit=mask_wo_edit, distance_grid=distance_grid, num_features=f)
 
-            # print(mask_inpaint.shape, replace_out_att.shape)
-            # print(torch.sum((mask_inpaint[0, 0, :, 0] > 0.5) * 1.0))
-
-            # exit()
-            correlation = torch.bmm(replace_out_att[:, mask_inpaint[0, 0, :, 0] > 0.5], base_att.permute(0, -1, 1).detach())
-
-            correlation_inpaint = correlation * mask_inpaint[..., 0]
-            correlation_wo_edit = correlation * mask_wo_edit[..., 0]
-
-            # p_correlation_inpaint = torch.max(correlation_inpaint, -1).values
-            # p_correlation_wo_edit = torch.max(correlation_wo_edit, -1).values
-
-            # dissimilar_loss = torch.sum(-torch.log(p_correlation_wo_edit + 1e-4) + torch.log(p_correlation_inpaint + 1e-4)) / (torch.sum(mask_inpaint) * f + 1e-8)
-
-            m_c_inpaint = torch.max(correlation_inpaint, -1)
-            m_c_wo_edit = torch.max(correlation_wo_edit, -1)
-
-            p_correlation_inpaint, d_inpaint = m_c_inpaint.values, distance_grid[:, mask_inpaint[0, 0, :, 0] > 0.5, m_c_inpaint.indices]
-            p_correlation_wo_edit, d_wo_edit = m_c_wo_edit.values, distance_grid[:, mask_inpaint[0, 0, :, 0] > 0.5, m_c_wo_edit.indices]
-
-            # print(d_inpaint.max(), d_inpaint.min(), d_wo_edit.max(), d_wo_edit.min())
-            
-            # print("before: ", torch.log(p_correlation_inpaint + 1e-4).min(), torch.log(p_correlation_inpaint + 1e-4).max())
-            # print("after: ", torch.exp(-15 * d_wo_edit.detach()).max(), (torch.exp(-15 * d_wo_edit.detach()) * torch.log(p_correlation_inpaint + 1e-4)).min(), (torch.exp(-15 * d_wo_edit.detach()) * torch.log(p_correlation_inpaint + 1e-4)).max())
-
-            # d_before = (-torch.log(p_correlation_wo_edit + 1e-4) + torch.log(p_correlation_inpaint + 1e-4))
-            # d_after = (-torch.log(p_correlation_wo_edit + 1e-4) + torch.exp(-15 * d_wo_edit.detach()) * torch.log(p_correlation_inpaint + 1e-4))
-            
-            
-            # print("+++++++++++++++++++++++++++++++++++++++++++++++")
-            # print("before: ", d_before.min(), d_before.max())
-            # print("after: ", d_after.min(), d_after.max())
-
-            
-
-            with torch.no_grad():
-                d_weight = torch.exp(-d_wo_edit.detach())
-                
-            dissimilar_loss = torch.sum(d_weight.detach() * (-torch.log(p_correlation_wo_edit + 1e-4) + torch.log(p_correlation_inpaint + 1e-4))) / (torch.sum(mask_inpaint) * f + 1e-8)
-
-            del m_c_inpaint, m_c_wo_edit
-
-
-            # dissimilar_loss = -(torch.sum(torch.sum((((torch.abs(edit_out.detach() - replace_out)))), -1)[..., None] * mask_inpaint) / (torch.sum(mask_inpaint.expand_as(replace_out)) + 1e-8))
-            # dissimilar_loss = get_correlation_loss_stitch(replace_out_att, mask_inpaint, mask_wo_edit, mask_inpaint)
 
             # with torch.no_grad():
             #     # Do not get min distance from regions that are in the background
@@ -777,15 +658,11 @@ class AttentionGeometryEdit(AttentionStore, abc.ABC):
         # mask_edit = binarize_tensor(mask_edit + amodal_mask)
 
         if self.cur_step < int(self.num_steps * self.obj_edit_step):
+            # Attention Sharing GeoDiffuser
             out_return = edit_out.detach() * (mask_edit) + replace_out * (1.0 - mask_edit) #mask_inpaint + replace_out * mask_wo_edit
-        # elif mask_inpaint.shape[2] <= 16 ** 2:
-        #     out_return = edit_out.detach() * (mask_edit) + replace_out * (1.0 - mask_edit)
         else:
+            # Diffusion Correction
             out_return = replace_out
-
-            # print("identity")
-            # out_return = replace_out_identity * (1.0 - mask_edit) + edit_out.detach() * mask_edit
-            # out_return = replace_out_identity * (mask_edit) + replace_out_identity * mask_inpaint + replace_out * mask_wo_edit
 
         return out_return
 

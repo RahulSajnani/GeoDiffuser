@@ -247,7 +247,7 @@ def get_base_edit_qkv(q, k, v, batch_size, coords_base = None, coords_edit = Non
 # GeoDiffuser Attention Sharing Mechanism
 def attention_sharing(q_ref, k_ref, v_ref, q_edit, k_edit, v_edit):
 
-
+    
 
 
 

@@ -133,9 +133,9 @@ def load_model(diffusion_model, unet_path = "", device = "cuda:0"):
         ldm_stable.unet = UNet2DConditionModel.from_pretrained(
         unet_path, subfolder="unet", torch_dtype=data_type).to(device)
         UNET_NAME = unet_path
-    
+    # ldm_stable.unet.eval()    
     # ldm_stable.unet = torch.compile(ldm_stable.unet, mode = "reduce-overhead")
-    ldm_stable.unet = ldm_stable.unet.eval()
+    ldm_stable.unet.eval()
 
     
 

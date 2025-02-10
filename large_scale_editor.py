@@ -296,7 +296,7 @@ def perform_exp(exp_dict, prompt = "", ldm_stable_model = None, tokenizer_model 
 
         cross_replace_steps = {'default_': 0.95}
         self_replace_steps = 0.95
-        obj_edit_step = 0.7
+        obj_edit_step = 0.9
         # lr = 0.01
 
 
@@ -344,18 +344,19 @@ if __name__=="__main__":
 
     # exp_root_folder = "./ui_outputs/editing/"
     # exp_root_folder = "./ui_outputs/rotation_2/"
+    exp_root_folder = "/oscar/scratch/rsajnani/rsajnani/research/2023/GeometryDiffuser/GeometryDiffuser/ui_outputs/test/"
 
     folder_list = glob.glob(complete_path(exp_root_folder) + "**/")
     folder_list.sort()
     # exp_folder = "./ui_outputs/teasers/Mix/1/"
     # exp_folder = "./ui_outputs/large_scale_study_optimizer/Translation_2D/30/"
 
-    exp_type = "geometry_editor"
+    # exp_type = "geometry_editor"
     # exp_folder = "./ui_outputs/large_scale_study_all/large_scale_study_dataset_metrics_wacv_test/Translation_2D/24/"
-    exp_folder = "./ui_output/check_2/Mix/1"
+    # exp_folder = "./ui_output/check_2/Mix/1"
     # exp_folder = "/users/rsajnani/scratch/rsajnani/research/2023/test_sd/test_sd/prompt-to-prompt/ui_outputs/large_scale_study_all/visuals/Translation_2D/16/"
-    run_exp_on_folder_single(exp_folder, exp_type, ldm_stable, tokenizer, scheduler)
-    exit()
+    # run_exp_on_folder_single(exp_folder, exp_type, ldm_stable, tokenizer, scheduler)
+    # exit()
 
     # print(folder_list)
 
