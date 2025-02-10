@@ -203,19 +203,19 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     scale_x = gr.Slider(label='sx',
                                 info='Scale x',
-                                minimum=-1.5,
+                                minimum=0.0,
                                 maximum=1.5,
                                 step=0.01,
                                 value=1.0)
                     scale_y = gr.Slider(label='sy',
                                 info='Scale y',
-                                minimum=-1.5,
+                                minimum=0.0,
                                 maximum=1.5,
                                 step=0.01,
                                 value=1.0)
                     scale_z = gr.Slider(label='sz',
                                 info='Scale z',
-                                minimum=-1.5,
+                                minimum=0.0,
                                 maximum=1.5,
                                 step=0.01,
                                 value=1.0)
@@ -227,7 +227,7 @@ with gr.Blocks() as demo:
                     minimum=0,
                     maximum=5,
                     step=0.01,
-                    value=0.5)
+                    value=0.7)
                 
                 with gr.Row():
                     depth_model = gr.Dropdown(label = "Depth Estimator", choices = ["midas_depth", "depth_anything", "constant_depth", "zoe_depth"], value = "depth_anything")
@@ -454,14 +454,14 @@ with gr.Blocks() as demo:
                             minimum=0.0,
                             maximum=1000.0,
                             step=0.01,
-                            value=15.5)
+                            value=30.5)
                 
                 movement_loss_w_cross = gr.Slider(label='foreground preservation loss (cross)',
                             info='foreground preservation loss (cross)',
                             minimum=0.0,
                             maximum=1000.0,
                             step=0.01,
-                            value=8.34)
+                            value=30.34)
 
                 amodal_loss_w_cross = gr.Slider(label='amodal loss (cross)',
                             info='amodal loss (cross)',
@@ -715,7 +715,7 @@ with gr.Blocks() as demo:
                             minimum=0.0,
                             maximum=10.0,
                             step=0.1,
-                            value=3.0)
+                            value=5.0)
 
                 cross_replace_steps_inpainting = gr.Slider(label='Cross replace',
                             info='Cross replace',
@@ -892,14 +892,14 @@ with gr.Blocks() as demo:
                             minimum=0.0,
                             maximum=1000.0,
                             step=0.01,
-                            value=2.6)
+                            value=4.6)
                 
                 inpainting_removal_loss_w_cross = gr.Slider(label='Removal Loss (cross)',
                             info='Removal Loss (cross)',
                             minimum=0.0,
                             maximum=1000.0,
                             step=0.01,
-                            value=2.6)
+                            value=4.6)
 
                            
 
@@ -910,14 +910,14 @@ with gr.Blocks() as demo:
                             minimum=0.0,
                             maximum=1000.0,
                             step=0.01,
-                            value=90)
+                            value=30)
                 
                 inpainting_smoothness_loss_w_cross = gr.Slider(label='loss inpainting_smoothness (cross)',
                             info='loss inpainting_smoothness (cross)',
                             minimum=0.0,
                             maximum=1000.0,
                             step=0.01,
-                            value=60)
+                            value=15)
 
                 inpaint_mask_button = gr.Button("Inpaint Mask")
             
@@ -1152,10 +1152,13 @@ demo.launch(share=True, debug=True)
 
 # todo
 # improve color histogram post processing - checked no luck
-# increase speed by not performing bilinear interpolation repeatedly
+# increase speed by not performing bilinear interpolation repeatedly - done
 # Better amodal mask for editing
 # Check gradio demo and fix the issue of hanging
 # Write a editing readme that uses depth
 # set high depth as default value (more far away from camera essentially)
+# Clean code
+# Test some wild edits
+
     
     

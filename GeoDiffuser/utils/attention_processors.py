@@ -237,6 +237,7 @@ def background_preservation_loss(edit_out, replace_out, mask_wo_edit, eps=1e-8):
         
     # sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit * distance_weights[:, None, :, None]) / (torch.sum(mask_wo_edit * torch.ones_like(replace_out.detach()) * distance_weights[:, None, :, None]) + 1e-8))
 
+
     sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit) / (torch.sum(mask_wo_edit.expand_as(replace_out)) + eps))
 
 
@@ -245,7 +246,6 @@ def background_preservation_loss(edit_out, replace_out, mask_wo_edit, eps=1e-8):
     return sim_loss
 
 def removal_loss_geodiff(replace_out_att, base_att, mask_inpaint, mask_wo_edit, distance_grid, num_features):
-
     
     correlation = torch.bmm(replace_out_att[:, mask_inpaint[0, 0, :, 0] > 0.5], base_att.permute(0, -1, 1).detach())
     correlation_inpaint = correlation * mask_inpaint[..., 0]
@@ -784,21 +784,12 @@ class AttentionGeometryRemover(AttentionStore, abc.ABC):
 
         edit_base_att = old_attention_map[coords_base[0] * h_head:coords_base[1]*h_head].detach()
         edit_out = old_attention_out[coords_base[0] * h_head:coords_base[1]*h_head][None].detach()
-        # edit_base_att = compute_attention(q_base.reshape(b*f, -1, D), k_base.reshape(b*f, -1, D), scale, mask)
-        # edit_out = torch.bmm(edit_base_att, v_base.reshape(b*f, -1, D))[None].detach()
         
         
         b, f, _, D = q_edit.shape
         replace_out_att = compute_attention(q_edit.reshape(b*f, -1, D), k_base.detach().reshape(b*f, -1, D), scale, mask)
         replace_out = torch.bmm(replace_out_att, v_base.reshape(b*f, -1, D)).reshape(b, f, -1, D) # 1, f, h*w, D
         
-
-
-
-        # print(edit_base_att.shape, replace_out_att.shape)
-
-        
-        # if self.cur_step < int(self.num_steps * self.obj_edit_step):
         if not (self.cur_step < int(self.num_steps * self.obj_edit_step)):
 
             replace_out_identity_att = compute_attention(q_edit.reshape(b*f, -1, D), k_edit.reshape(b*f, -1, D), scale, mask)
@@ -817,45 +808,15 @@ class AttentionGeometryRemover(AttentionStore, abc.ABC):
 
 
         if mask_inpaint.shape[2] >= 32 ** 2 and (not self.use_cfg):
-
-            sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit) / (torch.sum(mask_wo_edit.expand_as(replace_out)) + 1e-8))
-
-            # correlation = torch.bmm(replace_out_att[:, mask_inpaint[0, 0, :, 0] > 0.5], edit_base_att.permute(0, -1, 1).detach())
             
-            # # loss_correlation = torch.sum(correlation  * mask_inpaint[..., 0] - correlation  * mask_wo_edit[..., 0]) / (torch.sum(mask_inpaint) * h * w * f + 1e-8)
-            # loss_correlation = torch.sum(torch.max(correlation * mask_inpaint[..., 0], -1).values - torch.max(correlation  * mask_wo_edit[..., 0], -1).values) / (torch.sum(mask_inpaint) * f + 1e-8)
+            # Background Preservation Loss
+            sim_loss = background_preservation_loss(edit_out=edit_out, replace_out=replace_out, mask_wo_edit=mask_wo_edit)
 
-            correlation = torch.bmm(replace_out_att[:, mask_inpaint[0, 0, :, 0] > 0.5], edit_base_att.permute(0, -1, 1).detach())
+            # Removal Loss
+            loss_correlation = removal_loss_geodiff(replace_out_att, edit_base_att, mask_inpaint, mask_wo_edit, distance_grid, num_features=f)
 
-            correlation_inpaint = correlation * mask_inpaint[..., 0]
-            correlation_wo_edit = correlation * mask_wo_edit[..., 0]
-
-            # p_correlation_inpaint = torch.max(correlation_inpaint, -1).values
-            # p_correlation_wo_edit = torch.max(correlation_wo_edit, -1).values
-
-            # loss_correlation = torch.sum(-torch.log(p_correlation_wo_edit + 1e-4) + torch.log(p_correlation_inpaint + 1e-4)) / (torch.sum(mask_inpaint) * f + 1e-8)
-
-            m_c_inpaint = torch.max(correlation_inpaint, -1)
-            m_c_wo_edit = torch.max(correlation_wo_edit, -1)
-
-            p_correlation_inpaint, d_inpaint = m_c_inpaint.values, distance_grid[:, mask_inpaint[0, 0, :, 0] > 0.5, m_c_inpaint.indices]
-            p_correlation_wo_edit, d_wo_edit = m_c_wo_edit.values, distance_grid[:, mask_inpaint[0, 0, :, 0] > 0.5, m_c_wo_edit.indices]
-
-
-            with torch.no_grad():
-                d_weight = torch.exp(-d_wo_edit.detach())
-
-            loss_correlation = torch.sum(d_weight.detach() * (-torch.log(p_correlation_wo_edit + 1e-4) + torch.log(p_correlation_inpaint + 1e-4))) / (torch.sum(mask_inpaint) * f + 1e-8)
-            del m_c_inpaint, m_c_wo_edit
-
+            # Smoothness Loss
             smoothness_loss, _, _ = get_smoothness_loss(replace_out)
-            # print(smoothness_loss)
-            
-            
-
-    # b, h*w, h*w
-            # print(loss_correlation, "Cross")        
-            dissociate_loss, att_loss, dissociate_loss_2, movement_loss = 0, 0, 0, 0.0
 
             lw = self.loss_weight_dict["cross"]
             self.loss += (lw["sim"] * sim_loss + lw["removal"]* loss_correlation) + lw["smoothness"] * smoothness_loss
@@ -865,7 +826,6 @@ class AttentionGeometryRemover(AttentionStore, abc.ABC):
             self.loss_log_dict["cross"] = update_loss_log_dict(self.loss_log_dict["cross"], loss_log_dict) 
             self.loss_log_dict["num_layers"] += 1
 
-            # self.loss += 0.5 * (0.0 * dissociate_loss + 0.0 * att_loss + 200.0 * sim_loss + 0.0 * movement_loss + 0.0 *  dissociate_loss_2 + 0.0 * dissimilar_loss + 20.0 * loss_correlation + 200 * smoothness_loss) / 3
 
 
         if self.cur_step < int(self.num_steps * self.obj_edit_step):
@@ -916,18 +876,12 @@ class AttentionGeometryRemover(AttentionStore, abc.ABC):
 
 
         edit_base_att = old_attention_map[coords_base[0] * h_head:coords_base[1]*h_head].detach()
-        edit_out = old_attention_out[coords_base[0] * h_head:coords_base[1]*h_head][None].detach()
-        # edit_base_att = compute_attention(q_base.reshape(b*f, -1, D), k_base.reshape(b*f, -1, D), scale, mask)
-        # edit_out = torch.bmm(edit_base_att, v_base.reshape(b*f, -1, D))[None].detach()
-        
+        edit_out = old_attention_out[coords_base[0] * h_head:coords_base[1]*h_head][None].detach()        
         
         b, f, _, D = q_edit.shape
         replace_out_att = compute_attention(q_edit.reshape(b*f, -1, D), k_base.detach().reshape(b*f, -1, D), scale, mask)
         replace_out = torch.bmm(replace_out_att, v_base.reshape(b*f, -1, D)).reshape(b, f, -1, D) # 1, f, h*w, D
         
-
-        # if self.cur_step < int(self.num_steps * self.obj_edit_step):
-
 
         if not (self.cur_step < int(self.num_steps * self.obj_edit_step)):
             replace_out_identity_att = compute_attention(q_edit.reshape(b*f, -1, D), k_edit.reshape(b*f, -1, D), scale, mask)
@@ -944,54 +898,16 @@ class AttentionGeometryRemover(AttentionStore, abc.ABC):
         b, f, _, D = replace_out.shape
 
 
-        # print(edit_out.shape, replace_out.shape, mask_inpaint.shape)
-        # print(replace_out[:, :, mask_inpaint[0, 0, :, 0] > 0.5].shape)
-
-        # dissimilar_loss = - (torch.sum(torch.min((torch.sum(torch.abs(replace_out[:, :, mask_inpaint[0, 0, :, 0] > 0.5][:, :, :, None] - edit_out[:, :, mask_inpaint[0, 0, :, 0] > 0.5][:, :, None].detach()), -1)), -1).values) / (torch.sum(mask_inpaint.expand_as(replace_out)) * 8 + 1e-8)) # b, 8, M_#
-
-
         if mask_inpaint.shape[2] >= 32 ** 2 and (not self.use_cfg):
-            # dissimilar_loss = -(torch.sum(torch.sum((((torch.abs(edit_out.detach() - replace_out)))), -1)[..., None] * mask_inpaint) / (torch.sum(mask_inpaint.expand_as(replace_out)) + 1e-8))
-            sim_loss = (torch.sum(torch.sum((torch.abs(edit_out.detach() - replace_out)), -1)[..., None] * mask_wo_edit) / (torch.sum(mask_wo_edit.expand_as(replace_out)) + 1e-8))
+
+            # Background Preservation Loss
+            sim_loss = background_preservation_loss(edit_out=edit_out, replace_out=replace_out, mask_wo_edit=mask_wo_edit)
             
-            # print(dissimilar_loss)
+            # Removal Loss
+            loss_correlation = removal_loss_geodiff(replace_out_att, edit_base_att, mask_inpaint, mask_wo_edit, distance_grid, num_features=f)
 
-            correlation = torch.bmm(replace_out_att[:, mask_inpaint[0, 0, :, 0] > 0.5], edit_base_att.permute(0, -1, 1).detach())
-
-            correlation_inpaint = correlation * mask_inpaint[..., 0]
-            correlation_wo_edit = correlation * mask_wo_edit[..., 0]
-
-            # p_correlation_inpaint = torch.max(correlation_inpaint, -1).values
-            # p_correlation_wo_edit = torch.max(correlation_wo_edit, -1).values
-
-            # loss_correlation = torch.sum(-torch.log(p_correlation_wo_edit + 1e-4) + torch.log(p_correlation_inpaint + 1e-4)) / (torch.sum(mask_inpaint) * f + 1e-8)
-
-
-            m_c_inpaint = torch.max(correlation_inpaint, -1)
-            m_c_wo_edit = torch.max(correlation_wo_edit, -1)
-
-            p_correlation_inpaint, d_inpaint = m_c_inpaint.values, distance_grid[:, mask_inpaint[0, 0, :, 0] > 0.5, m_c_inpaint.indices]
-            p_correlation_wo_edit, d_wo_edit = m_c_wo_edit.values, distance_grid[:, mask_inpaint[0, 0, :, 0] > 0.5, m_c_wo_edit.indices]
-
-
-            with torch.no_grad():
-                d_weight = torch.exp(-d_wo_edit.detach())
-
-            loss_correlation = torch.sum(d_weight.detach() * (-torch.log(p_correlation_wo_edit + 1e-4) + torch.log(p_correlation_inpaint + 1e-4))) / (torch.sum(mask_inpaint) * f + 1e-8)
-            del m_c_inpaint, m_c_wo_edit
-            
-            # loss_correlation = torch.sum(torch.max(correlation * mask_inpaint[..., 0] / (torch.sum(correlation * mask_inpaint[..., 0], -1, keepdims=True) + 1e-8), -1).values - torch.max(correlation  * mask_wo_edit[..., 0] / (torch.sum(correlation * mask_wo_edit[..., 0], -1, keepdims=True) + 1e-8), -1).values) / (torch.sum(mask_inpaint) * f + 1e-8)
-
-            # print(loss_correlation, "Self")        
-
-            # print(replace_out.shape, " replace out")
-
+            # Smoothness Loss
             smoothness_loss, _, _ = get_smoothness_loss(replace_out)
-            # print(smoothness_loss)
-
-            # exit()
-
-            dissociate_loss, att_loss, dissociate_loss_2, movement_loss = 0, 0, 0, 0.0
 
 
             lw = self.loss_weight_dict["self"]
@@ -1001,8 +917,6 @@ class AttentionGeometryRemover(AttentionStore, abc.ABC):
             self.loss_log_dict["self"] = update_loss_log_dict(self.loss_log_dict["self"], loss_log_dict) 
             self.loss_log_dict["num_layers"] += 1
 
-
-            # self.loss += 0.5 * (0.0 * dissociate_loss + 0.0 * att_loss + 365.0 * sim_loss + 0.0 * movement_loss + 0.0 *  dissociate_loss_2 + 0.0 * dissimilar_loss + 35.0 * loss_correlation + 330 * smoothness_loss) / 3
 
 
         if self.cur_step < int(self.num_steps * self.obj_edit_step):
