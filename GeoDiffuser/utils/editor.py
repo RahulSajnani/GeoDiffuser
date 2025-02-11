@@ -491,7 +491,7 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
     global tokenizer, ldm_stable, scheduler
 
     PROGRESS_BAR = progress
-    global GUIDANCE_SCALE, SKIP_OPTIM_STEPS, NUM_DDIM_STEPS
+    global GUIDANCE_SCALE, SKIP_OPTIM_STEPS, NUM_DDIM_STEPS, UNET_NAME
     
     GUIDANCE_SCALE = guidance_scale
     SKIP_OPTIM_STEPS = skip_optim_steps
@@ -552,15 +552,22 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
     tokenizer = TOKENIZER
     scheduler = SCHEDULER
 
-    if scheduler_in is not None and (unet_path == "" or unet_path == UNET_NAME):
+    print(unet_path, UNET_NAME, scheduler_in)
+
+    if (scheduler_in is not None) and ((unet_path == "") or (unet_path == UNET_NAME)):
         print("using pre loaded model.")
         ldm_stable = ldm_stable_model
         tokenizer = tokenizer_model
         scheduler = scheduler_in
         
 
-    elif (ldm_stable is None) or (tokenizer is None) or (scheduler is None):
+    elif (ldm_stable is None) or (tokenizer is None) or (scheduler is None) or ((unet_path != "") and (unet_path != UNET_NAME)):
         ldm_stable, tokenizer, scheduler = load_model(diffusion_model = DIFFUSION_MODEL, unet_path = unet_path, device = DEVICE)
+        UNET_NAME = DIFFUSION_MODEL
+        if unet_path != "":
+            UNET_NAME = unet_path
+
+    
 
     else:
         print("No model loading required")

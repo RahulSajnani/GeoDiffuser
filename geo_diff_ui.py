@@ -240,13 +240,13 @@ with gr.Blocks() as demo:
                     prompt = gr.Textbox(info="Prompt for Editing (Optional)", value="")
                 
                 # Add feature later!
-                # with gr.Row():
-                #     diffusion_model = gr.Dropdown(label = "Diffusion Model", choices = [
-                #         "CompVis/stable-diffusion-v1-4", 
-                #         "runwayml/stable-diffusion-v1-5", 
-                #         "stabilityai/stable-diffusion-2-base", 
-                #         "stabilityai/stable-diffusion-2-1"], 
-                #         value = "CompVis/stable-diffusion-v1-4")
+                with gr.Row():
+                    diffusion_model = gr.Dropdown(label = "Diffusion Model", choices = [
+                        "CompVis/stable-diffusion-v1-4", 
+                        "runwayml/stable-diffusion-v1-5", 
+                        "stabilityai/stable-diffusion-2-base", 
+                        "stabilityai/stable-diffusion-2-1-base"], 
+                        value = "CompVis/stable-diffusion-v1-4")
 
 
                 with gr.Row(visible=False):
@@ -681,13 +681,13 @@ with gr.Blocks() as demo:
 
                 
                 # Add feature later!
-                # with gr.Row():
-                #     diffusion_model = gr.Dropdown(label = "Diffusion Model", choices = [
-                #         "CompVis/stable-diffusion-v1-4", 
-                #         "runwayml/stable-diffusion-v1-5", 
-                #         "stabilityai/stable-diffusion-2-base", 
-                #         "stabilityai/stable-diffusion-2-1"], 
-                #         value = "CompVis/stable-diffusion-v1-4")
+                with gr.Row():
+                    diffusion_model_inpainting = gr.Dropdown(label = "Diffusion Model", choices = [
+                        "CompVis/stable-diffusion-v1-4", 
+                        "runwayml/stable-diffusion-v1-5", 
+                        "stabilityai/stable-diffusion-2-base", 
+                        "stabilityai/stable-diffusion-2-1-base"], 
+                        value = "CompVis/stable-diffusion-v1-4")
 
 
                 # with gr.Row():
@@ -1004,7 +1004,7 @@ with gr.Blocks() as demo:
 
     edit_button.click(
         get_edited_image,
-        [input_image, depth_image, mask_image, transform_in, edited_image, guidance_scale, skip_steps, num_ddim_steps, optim_lr, cross_replace_steps, self_replace_steps, latent_replace_steps, optimize_steps, splatting_radius, movement_sim_loss_w_self, movement_sim_loss_w_cross, movement_loss_w_self, movement_loss_w_cross, movement_removal_loss_w_self, movement_removal_loss_w_cross, movement_smoothness_loss_w_self, movement_smoothness_loss_w_cross, amodal_loss_w_cross, amodal_loss_w_self, splatting_tau, splatting_points_per_pixel, prompt, diffusion_correction],
+        [input_image, depth_image, mask_image, transform_in, edited_image, guidance_scale, skip_steps, num_ddim_steps, optim_lr, cross_replace_steps, self_replace_steps, latent_replace_steps, optimize_steps, splatting_radius, movement_sim_loss_w_self, movement_sim_loss_w_cross, movement_loss_w_self, movement_loss_w_cross, movement_removal_loss_w_self, movement_removal_loss_w_cross, movement_smoothness_loss_w_self, movement_smoothness_loss_w_cross, amodal_loss_w_cross, amodal_loss_w_self, splatting_tau, splatting_points_per_pixel, prompt, diffusion_correction, diffusion_model],
         [edited_image]
     )
 
@@ -1115,7 +1115,7 @@ with gr.Blocks() as demo:
 
     inpaint_mask_button.click(
         inpaint_mask,
-        [input_image_inpainting, mask_image_inpainting, edited_image_inpainting, guidance_scale_inpainting, skip_steps_inpainting, num_ddim_steps_inpainting, optim_lr_inpainting, cross_replace_steps_inpainting, self_replace_steps_inpainting, latent_replace_steps_inpainting, optimize_steps_inpainting, splatting_radius_inpainting, inpainting_sim_loss_w_self, inpainting_sim_loss_w_cross, inpainting_removal_loss_w_self, inpainting_removal_loss_w_cross, inpainting_smoothness_loss_w_self, inpainting_smoothness_loss_w_cross],
+        [input_image_inpainting, mask_image_inpainting, edited_image_inpainting, guidance_scale_inpainting, skip_steps_inpainting, num_ddim_steps_inpainting, optim_lr_inpainting, cross_replace_steps_inpainting, self_replace_steps_inpainting, latent_replace_steps_inpainting, optimize_steps_inpainting, splatting_radius_inpainting, inpainting_sim_loss_w_self, inpainting_sim_loss_w_cross, inpainting_removal_loss_w_self, inpainting_removal_loss_w_cross, inpainting_smoothness_loss_w_self, inpainting_smoothness_loss_w_cross, diffusion_model_inpainting, prompt_inpainting],
         [edited_image_inpainting]
 
     )
@@ -1153,12 +1153,14 @@ demo.launch(share=True, debug=True)
 # todo
 # improve color histogram post processing - checked no luck
 # increase speed by not performing bilinear interpolation repeatedly - done
-# Better amodal mask for editing
-# Check gradio demo and fix the issue of hanging
+# Better amodal mask for editing - in progress
+# Check gradio demo and fix the issue of hanging - not happening :(
 # Write a editing readme that uses depth
-# set high depth as default value (more far away from camera essentially)
-# Clean code
-# Test some wild edits
+# set high depth as default value (more far away from camera essentially) - done
+# Clean code - in progress
+# Test some wild edits - to add
+# Add feature to change model - done
+# Make the ui easier to navigate - in progress
 
     
     

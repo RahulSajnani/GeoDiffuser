@@ -100,6 +100,8 @@ def load_model(diffusion_model, unet_path = "", device = "cuda:0"):
 
     global UNET_NAME
 
+    if (unet_path != "") and (unet_path != None):
+        diffusion_model = unet_path
     data_type = torch.half
     # ldm_stable = StableDiffusionXLPipeline.from_pretrained(DIFFUSION_MODEL, torch_dtype=torch.half).to(device)
     ldm_stable = StableDiffusionPipeline.from_pretrained(diffusion_model, torch_dtype=torch.half).to(device)
