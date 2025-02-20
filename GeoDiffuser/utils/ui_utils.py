@@ -587,7 +587,7 @@ def save_global_model_variables(ldm_stable_model, tokenizer_model, scheduler_in)
 
 
 def get_edited_image(image, depth, image_mask, transform_in, edited_image, guidance_scale = 7.5, skip_steps = 1, num_ddim_steps = 50, lr = 0.03, cross_replace_steps = 0.97, self_replace_steps = 0.97, latent_replace = 0.6, optimize_steps = 0.95, splatting_radius = 1.3,
-    movement_sim_loss_w_self = 0.74, movement_sim_loss_w_cross = 0.5, movement_loss_w_self = 6.5, movement_loss_w_cross = 3.34, movement_removal_loss_w_self = 4.34, movement_removal_loss_w_cross = 2.67, movement_smoothness_loss_w_self = 0.0, movement_smoothness_loss_w_cross = 0.0, amodal_loss_w_cross = 3.5, amodal_loss_w_self = 80.5, splatting_tau = 1.0, splatting_points_per_pixel = 15, prompt = "", diffusion_correction = 0.0, unet_path = "",
+    movement_sim_loss_w_self = 0.74, movement_sim_loss_w_cross = 0.5, movement_loss_w_self = 6.5, movement_loss_w_cross = 3.34, movement_removal_loss_w_self = 4.34, movement_removal_loss_w_cross = 2.67, movement_smoothness_loss_w_self = 0.0, movement_smoothness_loss_w_cross = 0.0, amodal_loss_w_cross = 3.5, amodal_loss_w_self = 80.5, splatting_tau = 1.0, splatting_points_per_pixel = 15, prompt = "", diffusion_correction = 0.0, unet_path = "", removal_loss_value_in = -1.5,
     ldm_stable_model = None, 
     tokenizer_model = None, 
     scheduler_in = None, 
@@ -605,17 +605,18 @@ def get_edited_image(image, depth, image_mask, transform_in, edited_image, guida
     "self":{"sim": movement_sim_loss_w_self, "movement": movement_loss_w_self, "smoothness": movement_smoothness_loss_w_self, "removal": movement_removal_loss_w_self, "amodal": amodal_loss_w_self},
     "cross": {"sim": movement_sim_loss_w_cross, "movement": movement_loss_w_cross, "smoothness": movement_smoothness_loss_w_cross, "removal": movement_removal_loss_w_cross, "amodal": amodal_loss_w_cross}}
 
+    print(f"[INFO]: Using Removal Loss value: {removal_loss_value_in}")
+
 
     print(loss_weights_dict)
     cross_replace_steps = {'default_': cross_replace_steps}
-    images = ge.perform_geometric_edit(image, depth, image_mask[..., 0] / 255.0, torch.tensor(transform_in).float(), prompt=prompt, ldm_stable_model=ldm_stable_model, tokenizer_model = tokenizer_model, scheduler_in = scheduler_in, cross_replace_steps =cross_replace_steps, self_replace_steps = self_replace_steps, optimize_steps = optimize_steps, lr = lr, latent_replace = latent_replace, optimize_embeddings = optimize_embeddings, optimize_latents = optimize_latents, obj_edit_step = 1.0 - diffusion_correction, perform_inversion = perform_inversion, guidance_scale = guidance_scale, skip_optim_steps = skip_steps, num_ddim_steps = num_ddim_steps, splatting_radius = splatting_radius, progress = progress, loss_weights_dict = loss_weights_dict, splatting_tau = splatting_tau, splatting_points_per_pixel = splatting_points_per_pixel, unet_path = unet_path)
+    images = ge.perform_geometric_edit(image, depth, image_mask[..., 0] / 255.0, torch.tensor(transform_in).float(), prompt=prompt, ldm_stable_model=ldm_stable_model, tokenizer_model = tokenizer_model, scheduler_in = scheduler_in, cross_replace_steps =cross_replace_steps, self_replace_steps = self_replace_steps, optimize_steps = optimize_steps, lr = lr, latent_replace = latent_replace, optimize_embeddings = optimize_embeddings, optimize_latents = optimize_latents, obj_edit_step = 1.0 - diffusion_correction, perform_inversion = perform_inversion, guidance_scale = guidance_scale, skip_optim_steps = skip_steps, num_ddim_steps = num_ddim_steps, splatting_radius = splatting_radius, progress = progress, loss_weights_dict = loss_weights_dict, splatting_tau = splatting_tau, splatting_points_per_pixel = splatting_points_per_pixel, unet_path = unet_path, removal_loss_value_in = removal_loss_value_in)
 
     edited_image = images[-1]
     return edited_image
 
 
-def inpaint_mask(image, image_mask, edited_image, guidance_scale = 7.5, skip_steps = 1, num_ddim_steps = 50, lr = 0.03, cross_replace_steps = 0.97, self_replace_steps = 0.97,latent_replace = 0.6, optimize_steps = 0.95, splatting_radius = 1.3, inpainting_sim_loss_w_self = 0.912, inpainting_sim_loss_w_cross = 0.909, inpainting_removal_loss_w_self = 66.67, inpainting_removal_loss_w_cross = 36.67, inpainting_smoothness_loss_w_self = 55, inpainting_smoothness_loss_w_cross = 33.34, unet_path = "",
-    prompt = "", 
+def inpaint_mask(image, image_mask, edited_image, guidance_scale = 7.5, skip_steps = 1, num_ddim_steps = 50, lr = 0.03, cross_replace_steps = 0.97, self_replace_steps = 0.97,latent_replace = 0.6, optimize_steps = 0.95, splatting_radius = 1.3, inpainting_sim_loss_w_self = 0.912, inpainting_sim_loss_w_cross = 0.909, inpainting_removal_loss_w_self = 66.67, inpainting_removal_loss_w_cross = 36.67, inpainting_smoothness_loss_w_self = 55, inpainting_smoothness_loss_w_cross = 33.34, unet_path = "", prompt = "", removal_loss_value_in = -1.5,
     ldm_stable_model = None, 
     tokenizer_model = None, 
     scheduler_in = None, 
@@ -634,13 +635,15 @@ def inpaint_mask(image, image_mask, edited_image, guidance_scale = 7.5, skip_ste
 
     # guidance_scale = 1.5
 
+    print(f"[INFO]: Using Removal Loss value: {removal_loss_value_in}")
+
     loss_weights_dict = {
         "cross": {"sim": inpainting_sim_loss_w_cross, "removal": inpainting_removal_loss_w_cross, "smoothness": inpainting_smoothness_loss_w_cross}, 
         "self":{"sim": inpainting_sim_loss_w_self,"removal": inpainting_removal_loss_w_self, "smoothness": inpainting_smoothness_loss_w_self}}
     # lr = 0.008
 
     cross_replace_steps = {'default_': cross_replace_steps}
-    images = ge.perform_geometric_edit(image, depth, image_mask[..., 0] / 255.0, torch.tensor(transform_in).float(), prompt, ldm_stable_model=ldm_stable_model, tokenizer_model = tokenizer_model, scheduler_in = scheduler_in, cross_replace_steps =cross_replace_steps, self_replace_steps = self_replace_steps, optimize_steps = optimize_steps, lr = lr, latent_replace = latent_replace, optimize_embeddings = optimize_embeddings, optimize_latents = optimize_latents, obj_edit_step = obj_edit_step, perform_inversion = perform_inversion, guidance_scale = guidance_scale, skip_optim_steps = skip_steps, num_ddim_steps = num_ddim_steps, splatting_radius = splatting_radius, edit_type = "geometry_remover", progress = progress, loss_weights_dict = loss_weights_dict, unet_path=unet_path)
+    images = ge.perform_geometric_edit(image, depth, image_mask[..., 0] / 255.0, torch.tensor(transform_in).float(), prompt, ldm_stable_model=ldm_stable_model, tokenizer_model = tokenizer_model, scheduler_in = scheduler_in, cross_replace_steps =cross_replace_steps, self_replace_steps = self_replace_steps, optimize_steps = optimize_steps, lr = lr, latent_replace = latent_replace, optimize_embeddings = optimize_embeddings, optimize_latents = optimize_latents, obj_edit_step = obj_edit_step, perform_inversion = perform_inversion, guidance_scale = guidance_scale, skip_optim_steps = skip_steps, num_ddim_steps = num_ddim_steps, splatting_radius = splatting_radius, edit_type = "geometry_remover", progress = progress, loss_weights_dict = loss_weights_dict, unet_path=unet_path, removal_loss_value_in=removal_loss_value_in)
 
     edited_image = images[-1]
     return edited_image

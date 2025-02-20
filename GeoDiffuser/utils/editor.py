@@ -88,6 +88,7 @@ def text2image_ldm_stable(
     use_adaptive_optimization = True,
     adain_latents_steps=0.95,
     use_optimizer = False,
+    removal_loss_value_in = -1.5,
 ):
 
     global_loss_log_dict = {}
@@ -285,11 +286,11 @@ def text2image_ldm_stable(
                         if use_adaptive_optimization:
                             print("[INFO]: Using Adaptive Optimization")
                             if edit_type == "geometry_editor":
-                                adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps = NUM_DDIM_STEPS)
+                                adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps = NUM_DDIM_STEPS, removal_loss_value_in = removal_loss_value_in)
                             elif edit_type == "geometry_stitch":
                                 adaptive_optimization_step_stitching(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps = NUM_DDIM_STEPS)
                             elif edit_type == "geometry_remover":
-                                adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps = NUM_DDIM_STEPS)
+                                adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps = NUM_DDIM_STEPS, removal_loss_value_in = removal_loss_value_in)
                         else:
                             print("[INFO]: Not Using Adaptive Optimization Results may not be optimal")
 
@@ -451,6 +452,7 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
     return_attention_maps = False,
     unet_path = "",
     use_optimizer = True,
+    removal_loss_value_in = -1.5,
     ):
     torch.cuda.empty_cache()
 
@@ -647,7 +649,7 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
     generator = torch.Generator("cuda")
     generator.manual_seed(SEED)
     images, _, global_loss_log_dict = run_and_display(ldm_stable, prompts, controller, run_baseline=False, latent=x_t, uncond_embeddings=uncond_embeddings, 
-    transform_coordinates=transform_coordinates, mask_obj = m_i_1, optimize_steps=optimize_steps, latent_replace=latent_replace, lr = lr, optimize_embeddings = optimize_embeddings, optimize_latents=optimize_latents, ddim_latents=ddim_latents, verbose=False, ddim_noise = ddim_noise, edit_type = edit_type, fast_start_steps = fast_start_steps, num_first_optim_steps = num_first_optim_steps, use_adaptive_optimization = use_adaptive_optimization)
+    transform_coordinates=transform_coordinates, mask_obj = m_i_1, optimize_steps=optimize_steps, latent_replace=latent_replace, lr = lr, optimize_embeddings = optimize_embeddings, optimize_latents=optimize_latents, ddim_latents=ddim_latents, verbose=False, ddim_noise = ddim_noise, edit_type = edit_type, fast_start_steps = fast_start_steps, num_first_optim_steps = num_first_optim_steps, use_adaptive_optimization = use_adaptive_optimization, removal_loss_value_in = removal_loss_value_in)
 
 
     # print(len(images))
@@ -708,9 +710,9 @@ def perform_geometric_edit(image, depth, image_mask, transform_in, prompt = "", 
     return images
 
 
-def run_and_display(ldm_stable, prompts, controller, latent=None, run_baseline=False, generator=None, uncond_embeddings=None, verbose=True, transform_coordinates=None, mask_obj = None, optimize_steps = 0.0, latent_replace = 0.0, lr = 0.0, optimize_embeddings = False, optimize_latents= True, ddim_latents = None, ddim_noise = None, edit_type = "geometry_editor", fast_start_steps = 0.0, num_first_optim_steps = 1, use_adaptive_optimization = True):
+def run_and_display(ldm_stable, prompts, controller, latent=None, run_baseline=False, generator=None, uncond_embeddings=None, verbose=True, transform_coordinates=None, mask_obj = None, optimize_steps = 0.0, latent_replace = 0.0, lr = 0.0, optimize_embeddings = False, optimize_latents= True, ddim_latents = None, ddim_noise = None, edit_type = "geometry_editor", fast_start_steps = 0.0, num_first_optim_steps = 1, use_adaptive_optimization = True, removal_loss_value_in = -1.5):
 
-    images, x_t, global_loss_log_dict = text2image_ldm_stable(ldm_stable, prompts, controller, latent=latent, num_inference_steps=NUM_DDIM_STEPS, guidance_scale=GUIDANCE_SCALE, generator=generator, uncond_embeddings=uncond_embeddings, transform_coordinates=transform_coordinates, mask_obj = mask_obj, optimize_steps = optimize_steps, latent_replace = latent_replace, lr = lr, optimize_embeddings = optimize_embeddings, optimize_latents = optimize_latents, ddim_latents = ddim_latents, ddim_noise = ddim_noise, edit_type = edit_type, fast_start_steps = fast_start_steps, num_first_optim_steps = num_first_optim_steps, use_adaptive_optimization = use_adaptive_optimization)
+    images, x_t, global_loss_log_dict = text2image_ldm_stable(ldm_stable, prompts, controller, latent=latent, num_inference_steps=NUM_DDIM_STEPS, guidance_scale=GUIDANCE_SCALE, generator=generator, uncond_embeddings=uncond_embeddings, transform_coordinates=transform_coordinates, mask_obj = mask_obj, optimize_steps = optimize_steps, latent_replace = latent_replace, lr = lr, optimize_embeddings = optimize_embeddings, optimize_latents = optimize_latents, ddim_latents = ddim_latents, ddim_noise = ddim_noise, edit_type = edit_type, fast_start_steps = fast_start_steps, num_first_optim_steps = num_first_optim_steps, use_adaptive_optimization = use_adaptive_optimization, removal_loss_value_in = removal_loss_value_in)
     if verbose:
         view_images(images)
     return images, x_t, global_loss_log_dict

@@ -4,13 +4,14 @@ from GeoDiffuser.utils.generic_torch import *
 
 
 
-def adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps):
+def adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps, removal_loss_value_in = -1.5):
 
 
+    print(f"[INFO]: Adaptive Removal Loss value {removal_loss_value_in}")
 
     if (i / num_ddim_steps) < 0.4:
         remaining_steps = int((0.4 - (i / num_ddim_steps)) * num_ddim_steps / skip_optim_steps)
-        expected_removal_loss_value = -1.5 / (1.25)**(remaining_steps)
+        expected_removal_loss_value = removal_loss_value_in / (1.25)**(remaining_steps)
         expected_movement_loss_value = 0.4 / (1.1)**(remaining_steps)
 
         expected_sim_loss_value = 0.5 / (1.05)**(remaining_steps)
@@ -45,7 +46,7 @@ def adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss
         
     elif ((i / num_ddim_steps) > 0.4) and ((i / num_ddim_steps) < 0.8):
 
-        if (-1.8 < out_loss_log_dict["self"]["removal"]):
+        if ((removal_loss_value_in - 0.3) < out_loss_log_dict["self"]["removal"]):
             controller.loss_weight_dict["self"]["removal"] *= 2.0
         else:
             controller.initialize_default_loss_weights()
@@ -54,13 +55,14 @@ def adaptive_optimization_step_editing(controller, i, skip_optim_steps, out_loss
         controller.initialize_default_loss_weights()
         # print("reinitialized controller loss weights: ", controller.loss_weight_dict)
 
-def adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps):
+def adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss_log_dict, num_ddim_steps, removal_loss_value_in = -1.5):
 
+    print(f"[INFO]: Adaptive Removal Loss value {removal_loss_value_in}")
 
 
     if (i / num_ddim_steps) < 0.4:
         remaining_steps = int((0.4 - (i / num_ddim_steps)) * num_ddim_steps / skip_optim_steps)
-        expected_removal_loss_value = -1.5 / (1.25)**(remaining_steps)
+        expected_removal_loss_value = removal_loss_value_in / (1.25)**(remaining_steps)
         expected_movement_loss_value = 0.4 / (1.1)**(remaining_steps)
 
         expected_sim_loss_value = 0.5 / (1.05)**(remaining_steps)
@@ -93,7 +95,7 @@ def adaptive_optimization_step_remover(controller, i, skip_optim_steps, out_loss
         
     elif ((i / num_ddim_steps) > 0.4) and ((i / num_ddim_steps) < 0.8):
 
-        if (-1.8 < out_loss_log_dict["self"]["removal"]):
+        if ((removal_loss_value_in - 0.3) < out_loss_log_dict["self"]["removal"]):
             controller.loss_weight_dict["self"]["removal"] *= 2.0
         else:
             controller.initialize_default_loss_weights()

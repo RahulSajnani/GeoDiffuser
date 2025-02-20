@@ -91,6 +91,10 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     sam_path = gr.Textbox(label = "SAM checkpoint path. Please change accordingly.", value = SAM_PATH, interactive=True)
 
+                with gr.Row():
+                    load_location = gr.Textbox(label = "Load exp directory", value = "/oscar/scratch/rsajnani/rsajnani/research/2023/GeometryDiffuser/dataset/large_scale_study_optimizer_sd_test/Translation_3D/34", interactive=True)
+                with gr.Row():
+                    load_exp_button = gr.Button("Load Experiment")
 
         # with gr.Row()
 
@@ -114,6 +118,7 @@ with gr.Blocks() as demo:
                     W_txt = gr.Number(label="Width", value= LENGTH, interactive=False)
                 
 
+                
                 with gr.Row(visible=False):
                     background_upload = gr.Button("Show Background Image Tab")
                 
@@ -145,7 +150,25 @@ with gr.Blocks() as demo:
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Depth Image</p>""")
                 depth_image_vis = gr.Image(type="numpy", label="Depth Image",
                     show_label=True, height=LENGTH, width=LENGTH, interactive=False)
-        
+
+            with gr.Column():
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Depth Options </p>""")
+
+                with gr.Row():
+                    translate_factor = gr.Slider(label='Push object depth farther away from camera [0-1]',
+                    info='Push object depth farther away from camera [0-1]',
+                    minimum=0,
+                    maximum=5,
+                    step=0.01,
+                    value=0.7)
+                
+                with gr.Row():
+                    depth_model = gr.Dropdown(label = "Depth Estimator", choices = ["midas_depth", "depth_anything", "constant_depth", "zoe_depth"], value = "depth_anything")
+                    depth_button = gr.Button("Get Depth")
+                # with gr.Row():
+
+                with gr.Row():
+                    depth_pt_path = gr.Textbox(label = "MIDAS checkpoint path checkpoint path", value = MIDAS_DEPTH_PATH, interactive=True)  
 
             # with gr.Column():
             #     gr.Markdown("""<p style="text-align: center; font-size: 20px">Place holder Image</p>""")
@@ -182,9 +205,7 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     clear_transforms_button = gr.Button("Clear Transforms")
 
-                with gr.Row():
-                    load_location = gr.Textbox(label = "Load exp directory", value = "/oscar/scratch/rsajnani/rsajnani/research/2023/GeometryDiffuser/dataset/large_scale_study_optimizer_sd_test/Translation_3D/34", interactive=True)
-                    load_exp_button = gr.Button("Load Experiment")
+
                 
 
                 
@@ -213,12 +234,7 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     transform_button = gr.Button("Check Transformed Image")
 
-                with gr.Row():
-                    exp_transform_type = gr.Dropdown(label = "Experiment Type", choices = ["Mix", "Rotation_3D", "Translation_3D", "Removal", "Rotation_2D", "Translation_2D", "Scaling"], value = "Mix")
-                    save_location = gr.Textbox(label = "Save Directory Parent Path", value = "./ui_outputs/", interactive=True)
-                
-                with gr.Row():
-                    save_button = gr.Button("Save Experiment")
+
 
 
 
@@ -243,22 +259,13 @@ with gr.Blocks() as demo:
                                 step=0.01,
                                 value=1.0)
                 
-
                 with gr.Row():
-                    translate_factor = gr.Slider(label='Push object depth farther away from camera [0-1]',
-                    info='Push object depth farther away from camera [0-1]',
-                    minimum=0,
-                    maximum=5,
-                    step=0.01,
-                    value=0.7)
+                    exp_transform_type = gr.Dropdown(label = "Experiment Type", choices = ["Mix", "Rotation_3D", "Translation_3D", "Removal", "Rotation_2D", "Translation_2D", "Scaling"], value = "Mix")
+                    save_location = gr.Textbox(label = "Save Directory Parent Path", value = "./ui_outputs/", interactive=True)
                 
                 with gr.Row():
-                    depth_model = gr.Dropdown(label = "Depth Estimator", choices = ["midas_depth", "depth_anything", "constant_depth", "zoe_depth"], value = "depth_anything")
-                    depth_button = gr.Button("Get Depth")
-                # with gr.Row():
+                    save_button = gr.Button("Save Experiment")
 
-                with gr.Row():
-                    depth_pt_path = gr.Textbox(label = "MIDAS checkpoint path checkpoint path", value = MIDAS_DEPTH_PATH, interactive=True)
                 
                 with gr.Row(visible=False):
                     advanced_options_button = gr.Button("View Advanced Options")
@@ -455,6 +462,13 @@ with gr.Blocks() as demo:
                                 maximum=1000.0,
                                 step=0.01,
                                 value=2.6)
+
+                    removal_loss_adaptive_value = gr.Slider(label='Removal Loss Adaptive Value',
+                                info='Value after which stop adaptive optimization',
+                                minimum=-30.0,
+                                maximum=0.0,
+                                step=0.01,
+                                value=-1.5)
                                 
                     
 
@@ -512,12 +526,20 @@ with gr.Blocks() as demo:
                                 step=0.01,
                                 value=0.1)
 
-                    
+
         with gr.Row():
+            gr.Markdown("""<p style="text-align: center; font-size: 20px">Scroll Below for Input and Edited Image in Original Aspect Ratio.</p>""")
+            
+        with gr.Row():
+
+            
             with gr.Column():
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Edited Image</p>""")
                 edited_image = gr.Image(type="numpy", label="Edited Image",
                     show_label=True, height=LENGTH, width=LENGTH, interactive=False)  
+
+
+
             
             with gr.Column():
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Editing Options</p>""")
@@ -535,6 +557,18 @@ with gr.Blocks() as demo:
                         value = "CompVis/stable-diffusion-v1-4")
         
                 edit_button = gr.Button("Move Object")
+
+
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Input image in original aspect ratio</p>""")
+                download_image_input = gr.Image(type="numpy", label="Download Input Image",
+                    show_label=True, height=LENGTH, width=LENGTH, interactive=False)   
+            
+            with gr.Column():
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Edited image in original aspect ratio</p>""")
+                download_image = gr.Image(type="numpy", label="Download Image",
+                    show_label=True, height=LENGTH, width=LENGTH, interactive=False)  
 
 
         with gr.Row(visible=False) as stitching_options:
@@ -622,16 +656,16 @@ with gr.Blocks() as demo:
   
 
 
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("""<p style="text-align: center; font-size: 20px">Input image in original aspect ratio</p>""")
-                download_image_input = gr.Image(type="numpy", label="Download Input Image",
-                    show_label=True, height=LENGTH, width=LENGTH, interactive=False)   
+        # with gr.Row():
+        #     with gr.Column():
+        #         gr.Markdown("""<p style="text-align: center; font-size: 20px">Input image in original aspect ratio</p>""")
+        #         download_image_input = gr.Image(type="numpy", label="Download Input Image",
+        #             show_label=True, height=LENGTH, width=LENGTH, interactive=False)   
 
-            with gr.Column():
-                gr.Markdown("""<p style="text-align: center; font-size: 20px">Edited image in original aspect ratio</p>""")
-                download_image = gr.Image(type="numpy", label="Download Image",
-                    show_label=True, height=LENGTH, width=LENGTH, interactive=False)   
+        #     with gr.Column():
+        #         gr.Markdown("""<p style="text-align: center; font-size: 20px">Edited image in original aspect ratio</p>""")
+        #         download_image = gr.Image(type="numpy", label="Download Image",
+        #             show_label=True, height=LENGTH, width=LENGTH, interactive=False)   
 
 
     with gr.Tab(label="Inpainting"):
@@ -681,7 +715,8 @@ with gr.Blocks() as demo:
 
 
 
-        with gr.Row():
+
+        with gr.Row(visible=False):
             with gr.Column():
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Transformed Image</p>""")
                 transformed_image_inpainting = gr.Image(type="numpy", label="Transformed Mask",
@@ -691,19 +726,18 @@ with gr.Blocks() as demo:
 
         with gr.Row():
             
-            with gr.Column():
 
-                with gr.Row():
-                    load_location_inpainting = gr.Textbox(label = "Load exp directory", value = "./ui_outputs/rotation_2/3/", interactive=True)
-                    load_exp_button_inpainting = gr.Button("Load Experiment")
                 # with gr.Row(visible=False):
                 #     inpainting_loss_button = gr.Button("Show inpainting loss weights")
                 # with gr.Row(visible=False):
                 #     stitching_loss_button = gr.Button("Show stitching loss weights")
-
+            with gr.Column():
+                with gr.Row():
+                    load_location_inpainting = gr.Textbox(label = "Load exp directory", value = "./ui_outputs/rotation_2/3/", interactive=True)
+                with gr.Row():
+                    load_exp_button_inpainting = gr.Button("Load Experiment")
                 
             with gr.Column():
-                
 
                 with gr.Row():
                     exp_transform_type_inpainting = gr.Dropdown(label = "Experiment Type", choices = ["Mix", "Rotation_3D", "Translation_3D", "Removal", "Rotation_2D", "Translation_2D", "Scaling", "Inpainting"], value = "Inpainting")
@@ -927,7 +961,12 @@ with gr.Blocks() as demo:
                             step=0.01,
                             value=4.6)
 
-                           
+                removal_loss_adaptive_value_inpainting = gr.Slider(label='Removal Loss Adaptive Value',
+                            info='Value after which stop adaptive optimization',
+                            minimum=-30.0,
+                            maximum=0,
+                            step=0.01,
+                            value=-1.5)       
 
 
             with gr.Row():
@@ -950,12 +989,19 @@ with gr.Blocks() as demo:
             #     inpaint_panel_hide = gr.Button("Hide Inpainting Panel")
 
 
+        with gr.Row():
+
+            gr.Markdown("""<p style="text-align: center; font-size: 20px">Scroll Below for Input and Edited Image in Original Aspect Ratio.</p>""")
 
         with gr.Row():
+
             with gr.Column():
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Edited Image</p>""")
                 edited_image_inpainting = gr.Image(type="numpy", label="Edited Image",
                     show_label=True, height=LENGTH, width=LENGTH, interactive=False)    
+
+
+
 
             with gr.Column():
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Editing Options</p>""")
@@ -975,9 +1021,7 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     inpaint_mask_button = gr.Button("Inpaint Mask")
 
-
-                
-
+                        
 
 
         with gr.Row():
@@ -985,12 +1029,17 @@ with gr.Blocks() as demo:
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Input image in original aspect ratio</p>""")
                 download_image_input_inpainting = gr.Image(type="numpy", label="Download Input Image",
                     show_label=True, height=LENGTH, width=LENGTH, interactive=False)   
-
+            
             with gr.Column():
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Edited image in original aspect ratio</p>""")
                 download_image_inpainting = gr.Image(type="numpy", label="Download Image",
                     show_label=True, height=LENGTH, width=LENGTH, interactive=False)   
 
+
+        background_image_inpainting = gr.State(value=None)
+        depth_image_inpainting = gr.State(value=None)
+        depth_image_vis_inpainting = gr.State(value=None)
+        transform_in_inpainting = gr.State(value=None)
 
 
                     
@@ -1054,7 +1103,7 @@ with gr.Blocks() as demo:
 
     edit_button.click(
         get_edited_image,
-        [input_image, depth_image, mask_image, transform_in, edited_image, guidance_scale, skip_steps, num_ddim_steps, optim_lr, cross_replace_steps, self_replace_steps, latent_replace_steps, optimize_steps, splatting_radius, movement_sim_loss_w_self, movement_sim_loss_w_cross, movement_loss_w_self, movement_loss_w_cross, movement_removal_loss_w_self, movement_removal_loss_w_cross, movement_smoothness_loss_w_self, movement_smoothness_loss_w_cross, amodal_loss_w_cross, amodal_loss_w_self, splatting_tau, splatting_points_per_pixel, prompt, diffusion_correction, diffusion_model],
+        [input_image, depth_image, mask_image, transform_in, edited_image, guidance_scale, skip_steps, num_ddim_steps, optim_lr, cross_replace_steps, self_replace_steps, latent_replace_steps, optimize_steps, splatting_radius, movement_sim_loss_w_self, movement_sim_loss_w_cross, movement_loss_w_self, movement_loss_w_cross, movement_removal_loss_w_self, movement_removal_loss_w_cross, movement_smoothness_loss_w_self, movement_smoothness_loss_w_cross, amodal_loss_w_cross, amodal_loss_w_self, splatting_tau, splatting_points_per_pixel, prompt, diffusion_correction, diffusion_model, removal_loss_adaptive_value],
         [edited_image]
     )
 
@@ -1189,15 +1238,17 @@ with gr.Blocks() as demo:
 
     inpaint_mask_button.click(
         inpaint_mask,
-        [input_image_inpainting, mask_image_inpainting, edited_image_inpainting, guidance_scale_inpainting, skip_steps_inpainting, num_ddim_steps_inpainting, optim_lr_inpainting, cross_replace_steps_inpainting, self_replace_steps_inpainting, latent_replace_steps_inpainting, optimize_steps_inpainting, splatting_radius_inpainting, inpainting_sim_loss_w_self, inpainting_sim_loss_w_cross, inpainting_removal_loss_w_self, inpainting_removal_loss_w_cross, inpainting_smoothness_loss_w_self, inpainting_smoothness_loss_w_cross, diffusion_model_inpainting, prompt_inpainting],
+        [input_image_inpainting, mask_image_inpainting, edited_image_inpainting, guidance_scale_inpainting, skip_steps_inpainting, num_ddim_steps_inpainting, optim_lr_inpainting, cross_replace_steps_inpainting, self_replace_steps_inpainting, latent_replace_steps_inpainting, optimize_steps_inpainting, splatting_radius_inpainting, inpainting_sim_loss_w_self, inpainting_sim_loss_w_cross, inpainting_removal_loss_w_self, inpainting_removal_loss_w_cross, inpainting_smoothness_loss_w_self, inpainting_smoothness_loss_w_cross, diffusion_model_inpainting, prompt_inpainting, removal_loss_adaptive_value_inpainting],
         [edited_image_inpainting]
 
     )
 
     load_exp_button_inpainting.click(
         read_exp_ui,
-        [load_location],
-        [input_image_inpainting, mask_image_inpainting, background_image, depth_image, depth_image_vis, transform_in, transformed_image_inpainting, edited_image_inpainting, H_txt_inpainting, W_txt_inpainting]
+        [load_location_inpainting],
+        [input_image_inpainting, mask_image_inpainting, background_image_inpainting, depth_image_inpainting, depth_image_vis_inpainting, transform_in_inpainting, transformed_image_inpainting, edited_image_inpainting, H_txt_inpainting, W_txt_inpainting]
+
+        # input_image, mask_image, background_image, depth_image, depth_image_vis, transform_in, transformed_image, edited_image, H_txt, W_txt
         # ed["input_image_png"], ed["input_mask_png"], ed["background_image_png"], ed["depth_npy"], ed["depth_png"], ed["transform_npy"], ed["transformed_image_png"], ed["result_png"], ed["image_shape_npy"][0], ed["image_shape_npy"][1]
     )
 
