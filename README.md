@@ -68,9 +68,20 @@ The success of image generative models has enabled us to build methods that can 
 
 ```
 # Creating the conda environment and loading it
+
 conda env create -f ./GeoDiffuser/envs/torch2.1_environment.yml
 conda activate GeoDiffuser
+pip3 install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt210/download.html
 ```
+
+## Download models for SAM
+```
+mkdir checkpoints
+cd checkpoints
+wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
+cd ../
+```
+
 
 ## Running GeoDiffuser
 ```
@@ -79,7 +90,7 @@ CUDA_VISIBLE_DEVICES=0 python3 geo_diff_ui.py
 
 
 ## Compute Requirements
-This code requires about 20-24 GB of VRAM and can be run on the recent Nvidia 3090/4090 GPUs. Authors would appreciate if the community can help improve this further.
+This code requires about 20-24 GB of VRAM and can be run on the recent Nvidia 3090/4090 GPUs. This code was run and developed on a Linux System with CUDA 12.1. Authors would appreciate if the community can help improve this further.
 
 ## Citation
 ```

@@ -9,7 +9,7 @@ from copy import deepcopy
 # def run_ui():
     
 LENGTH=512 # length of the square area displaying/editing images
-SAM_PATH = "/oscar/scratch/rsajnani/rsajnani/research/2023/test_sd/test_sd/segment-anything/weights/sam_vit_h_4b8939.pth"
+SAM_PATH = "./checkpoints/sam_vit_h_4b8939.pth"
 MIDAS_DEPTH_PATH = "./weights/dpt_large-midas-2f21e586.pt"
 
 def show_options():
