@@ -17,11 +17,11 @@
     &nbsp;&nbsp;
   </p>
 
-*[Rahul Sajnani](https://rahulsajnani.github.io/), [Jeroen Vanbaar](https://www.linkedin.com/in/jeroenvanbaar), [Jie Min](https://umjcs.github.io/), [Kapil Katyal](https://kdk132.github.io/), [Srinath Sridhar](https://cs.brown.edu/people/ssrinath/)*
+
 
 
 <p align="center">
-  <h5 align="center"> Geometry Edits </h5>
+  <h4 align="center"> Geometry Edits </h4>
   <div align="center">
     <img src="./assets/geometry_edits/1.gif", width="24%">
     <img src="./assets/geometry_edits/4.gif", width="24%">
@@ -36,7 +36,7 @@
     <img src="./assets/unlicensed/3.gif", width="24%">
     <img src="./assets/unlicensed/4.gif", width="24%">
   </div>
-  <h5 align="center"> Removal Edits </h5>
+  <h4 align="center"> Removal Edits </h4>
   <div align="center">
     <img src="./assets/removal_edits/1.gif", width="24%">
     <img src="./assets/removal_edits/2.gif", width="24%">
