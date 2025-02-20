@@ -55,8 +55,14 @@ The success of image generative models has enabled us to build methods that can 
 ## New Features & To Do
 - [x] Speed up code
 - [x] Release Code
+- [ ] Test Installation on new PC
 - [ ] Release Editing Dataset
 - [ ] Provide Editing Instructions
+- [ ] Add support for v-prediction models
+- [ ] Create a Flux Version of GeoDiffuser using FlowEdit/RF-Inversion
+
+
+
 
 ## Installation
 
@@ -71,6 +77,9 @@ conda activate GeoDiffuser
 CUDA_VISIBLE_DEVICES=0 python3 geo_diff_ui.py
 ```
 
+
+## Compute Requirements
+This code requires about 20-24 GB of VRAM and can be run on the recent Nvidia 3090/4090 GPUs. Authors would appreciate if the community can help improve this further.
 
 ## Citation
 ```
