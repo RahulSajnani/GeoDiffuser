@@ -50,7 +50,30 @@ def depth_corrector(depth, filter_type = "gaussian"):
     return depth_corrected
 
 
+def get_mask_prediction_multiple_points(image, input_points, input_labels, model_path = "/home/ec2-user/SageMaker/test_sd/segment-anything/weights/sam_vit_h_4b8939.pth"):
 
+    global SAM_MODEL
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if SAM_MODEL is None:
+        sam = sam_model_registry["vit_h"](checkpoint=model_path).to(device)
+        SAM_MODEL = sam
+    else:
+        sam = SAM_MODEL
+    predictor = SamPredictor(sam)
+    
+
+
+    predictor.set_image(image)
+
+
+    # input_points = np.array([[image.shape[1] * w, image.shape[0] * h]])
+    # input_label = np.array([1])
+    masks, _, _ = predictor.predict(input_points, input_labels)
+
+    image_mask = masks[-1] * 1.0
+
+    return image_mask
 
 def get_mask_prediction(image, h, w, model_path = "/home/ec2-user/SageMaker/test_sd/segment-anything/weights/sam_vit_h_4b8939.pth"):
 

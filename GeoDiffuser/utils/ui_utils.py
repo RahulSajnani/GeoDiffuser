@@ -1,7 +1,7 @@
 import gradio as gr
 import cv2
 import numpy as np
-from GeoDiffuser.utils.depth_predictor import get_mask_prediction, get_monocular_depth, get_monocular_ZoeDepth, get_monocular_depth_anything, get_constant_depth, depth_corrector
+from GeoDiffuser.utils.depth_predictor import get_mask_prediction, get_monocular_depth, get_monocular_ZoeDepth, get_monocular_depth_anything, get_constant_depth, depth_corrector, get_mask_prediction_multiple_points
 from GeoDiffuser.utils import vis_utils
 import GeoDiffuser.utils.generic as io
 import torch, os
@@ -14,6 +14,7 @@ import pyrealsense2 as rs
 import argparse
 from scipy.signal import medfilt
 from scipy.ndimage import gaussian_filter, minimum_filter, maximum_filter
+from copy import deepcopy
 
 
 
@@ -68,6 +69,8 @@ def save_exp(save_location_in,
     # print(type(input_img))
     # print(input_img[0])
     # print(input_img[1])
+    h = int(h)
+    w = int(w)
 
     save_location = complete_path(save_location_in) + exp_transform_type
     create_folder(save_location)
@@ -245,6 +248,77 @@ def get_mask_armbench(input_img, data, point):
     
     return 
 
+def get_points(img,
+               sel_pix,
+               point_label,
+               sam_model_path,
+               evt: gr.SelectData):
+    # collect the selected point
+    sel_pix.append((point_label, evt.index))
+    edit_img = deepcopy(img)
+    # draw points
+
+    input_points = []
+    input_labels = []
+    for point in sel_pix:
+        w,h = point[1]
+        input_points.append([float(w), float(h)])
+        if point[0] == "Positive":
+            cv2.circle(edit_img, tuple(point[1]), 10, (255, 0, 0), -1)
+            input_labels.append(1)
+
+        elif point[0] == "Negative":
+            cv2.circle(edit_img, tuple(point[1]), 10, (0, 0, 255), -1)
+            input_labels.append(0)
+
+        else:
+            raise ValueError("Unknown point type")
+
+    if not isinstance(edit_img, np.ndarray):
+        edit_img = np.array(edit_img)
+
+
+    # input_img = np.array(Image.fromarray(img))
+    input_points = np.array(input_points)
+    input_labels = np.array(input_labels)
+
+    mask_image = get_mask_prediction_multiple_points(edit_img, input_points, input_labels, model_path=sam_model_path)
+
+
+
+    return edit_img, mask_image
+
+def undo_point(img, sel_pix, sam_model_path):
+    edit_img = deepcopy(img)
+
+    input_points = []
+    input_labels = []
+    # draw points
+    for point in sel_pix[:-1]:
+        w,h = point[1]
+        input_points.append([float(w), float(h)])
+
+        if point[0] == "Positive":
+            cv2.circle(edit_img, tuple(point[1]), 10, (255, 0, 0), -1)
+            input_labels.append(1)
+
+        elif point[0] == "Negative":
+            cv2.circle(edit_img, tuple(point[1]), 10, (0, 0, 255), -1)
+            input_labels.append(0)
+
+        else:
+            raise ValueError("Unknown point type")
+
+    if not isinstance(edit_img, np.ndarray):
+        edit_img = np.array(edit_img)
+
+    input_points = np.array(input_points)
+    input_labels = np.array(input_labels)
+
+    mask_image = get_mask_prediction_multiple_points(edit_img, input_points, input_labels, model_path=sam_model_path)
+
+    return edit_img, mask_image, sel_pix[:-1]
+
 def get_mask(img,
                mask_image,
                sel_pix,
@@ -268,13 +342,13 @@ def get_mask(img,
     w,h = point
     mask_image = None
 
-    if segment_file is not None:
-        data = io.read_json(segment_file)
+    # if segment_file is not None:
+    #     data = io.read_json(segment_file)
 
-        mask_image = get_mask_armbench(original_image, data, (w, h))
+    #     mask_image = get_mask_armbench(original_image, data, (w, h))
         
-        if mask_image is not None:
-            mask_image = np.array(Image.fromarray(mask_image).resize((512, 512)))
+    #     if mask_image is not None:
+    #         mask_image = np.array(Image.fromarray(mask_image).resize((512, 512)))
     
     if mask_image is None:
         # print("Segment file is None")

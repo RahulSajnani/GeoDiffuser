@@ -33,8 +33,8 @@ fsspec @ file:///croot/fsspec_1701286474621/work
 ftfy==6.1.3
 fvcore @ file:///home/conda/feedstock_root/build_artifacts/fvcore_1671623667463/work
 gmpy2 @ file:///tmp/build/80754af9/gmpy2_1645455533097/work
-gradio==4.17.0
-gradio_client==0.9.0
+gradio==4.44.1
+gradio_client==1.3.0
 h11==0.14.0
 httpcore==1.0.2
 httpx==0.26.0
@@ -100,7 +100,7 @@ PySocks @ file:///home/builder/ci_310/pysocks_1640793678128/work
 python-dateutil==2.8.2
 python-multipart==0.0.9
 pytorch-lightning @ file:///home/conda/feedstock_root/build_artifacts/pytorch-lightning_1703184181175/work
-pytorch3d==0.7.5
+pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git@89653419d0973396f3eff1a381ba09a07fffc2ed
 pytz==2023.3.post1
 pywavelets @ file:///croot/pywavelets_1705049820073/work
 PyYAML @ file:///croot/pyyaml_1698096049011/work
@@ -110,6 +110,7 @@ requests @ file:///croot/requests_1690400202158/work
 rich==13.7.0
 rpds-py==0.17.1
 ruff==0.6.2
+safehttpx==0.1.6
 safetensors==0.4.1
 scikit-image @ file:///croot/scikit-image_1682528309703/work
 scipy @ file:///croot/scipy_1701295040508/work/dist/scipy-1.11.4-cp310-cp310-linux_x86_64.whl#sha256=a5e5a33a143f627fd4bde622162664c9ea97ff3af56f51c0f4c76ec9d1a340a3

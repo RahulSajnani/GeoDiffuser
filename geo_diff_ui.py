@@ -1,8 +1,9 @@
 import gradio as gr
 import os
-from GeoDiffuser.utils.ui_utils import get_mask, get_depth, get_transformed_mask, get_edited_image, correct_depth, inpaint_mask, get_stitched_image, save_exp, read_exp_ui, clear_transforms
+from GeoDiffuser.utils.ui_utils import get_mask, get_depth, get_transformed_mask, get_edited_image, correct_depth, inpaint_mask, get_stitched_image, save_exp, read_exp_ui, clear_transforms, get_points, undo_point
 from PIL import Image
 import numpy as np
+from copy import deepcopy
 
 
 # def run_ui():
@@ -17,8 +18,18 @@ def show_options():
 def hide_options():
     return gr.Row(visible=False)
 
+def copy_image(img):
+
+    return deepcopy(img)
+
 
 def resize_image_to_size(img, h, w):
+
+    # print(type(img), type(h), type(w))
+
+    h = int(h)
+    w = int(w)
+    # print(h, w)
     if img is None:
         return None
     input_img = np.array(Image.fromarray(img).resize((w, h), Image.NEAREST))
@@ -28,7 +39,7 @@ def resize_image_to_size(img, h, w):
 def resize_image(img):
     # print("Resizing image")
     input_img = np.array(Image.fromarray(img).resize((LENGTH, LENGTH)))
-    return input_img
+    return input_img, deepcopy(input_img)
 
 def resize_image_bg(img):
     # print("Resizing image")
@@ -46,7 +57,7 @@ def resize_image_and_get_constant_depth(img):
     depth_image = np.ones_like(input_img)
     depth, depth_im_vis = get_depth(input_img, "", depth, depth_image, depth_model = "constant_depth")
 
-    return input_img, depth, depth_im_vis, original_h, original_w
+    return input_img, depth, depth_im_vis, int(original_h), int(original_w)
 
 with gr.Blocks() as demo:
     # layout definition
@@ -65,22 +76,34 @@ with gr.Blocks() as demo:
 
         depth_image = gr.State(value=None) # store depth
         selected_points = gr.State([]) # store points
+        # input_image = gr.State(value=None) # stores unedited input image
 
         # original_image = gr.State(value=None) # store original input image
         with gr.Row():
             with gr.Column():
-                gr.Markdown("""<p style="text-align: center; font-size: 20px">Foreground Image <br> Click Points to Select Object</p>""")
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Input <br> Image </p>""")
                 input_image = gr.Image(type="numpy", label="Click Points \n",
                     show_label=True, height=LENGTH, width=LENGTH, interactive=True) # for points clicking
+                
 
-
-                gr.Markdown("""<p style="text-align: center; font-size: 10px">Foreground Image <br> Please set SAM checkpoint below before clicking on the image </p>""")
+    
+                # gr.Markdown("""<p style="text-align: center; font-size: 10px">Foreground Image <br> Please set SAM checkpoint below before clicking on the image </p>""")
                 with gr.Row():
-                    sam_path = gr.Textbox(label = "SAM checkpoint path.", value = SAM_PATH, interactive=True)
+                    sam_path = gr.Textbox(label = "SAM checkpoint path. Please change accordingly.", value = SAM_PATH, interactive=True)
 
 
+        # with gr.Row()
 
-        
+            with gr.Column():
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Foreground Image <br> Click Points to Select Object</p>""")
+                click_points_image = gr.Image(type="numpy", label="Mask Image",
+                    show_label=True, height=LENGTH, width=LENGTH, interactive=False)
+                
+                with gr.Row():
+
+                    point_label = gr.Radio(choices=["Positive",  "Negative"], value="Positive", label="Point prompt", interactive=True)
+                    undo_button = gr.Button("Undo point")
+                    
             with gr.Column():
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Image <br> Mask</p>""")
                 mask_image = gr.Image(type="numpy", label="Mask Image",
@@ -88,7 +111,7 @@ with gr.Blocks() as demo:
                 
                 with gr.Row():
                     H_txt = gr.Number(label="Height", value = LENGTH, interactive=False)
-                    W_txt = gr.Number(label="Width", value=LENGTH, interactive=False)
+                    W_txt = gr.Number(label="Width", value= LENGTH, interactive=False)
                 
 
                 with gr.Row(visible=False):
@@ -101,8 +124,8 @@ with gr.Blocks() as demo:
                 input_show_image = gr.Image(type="numpy", label="Foreground Image",
                     show_label=True, height=LENGTH, width=LENGTH, interactive=False)
                 
-                input_image.upload(fn = resize_image, inputs=[input_image], outputs=[input_show_image])
-                
+                input_image.upload(fn = resize_image, inputs=[input_image], outputs=[input_show_image, click_points_image])
+                input_image.change(fn = copy_image, inputs=[input_image], outputs=[click_points_image])              
 
             with gr.Column():
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Background Image for Stitching. <br> Leave Empty for Other Tasks</p>""")
@@ -203,19 +226,19 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     scale_x = gr.Slider(label='sx',
                                 info='Scale x',
-                                minimum=0.0,
+                                minimum=0.5,
                                 maximum=1.5,
                                 step=0.01,
                                 value=1.0)
                     scale_y = gr.Slider(label='sy',
                                 info='Scale y',
-                                minimum=0.0,
+                                minimum=0.5,
                                 maximum=1.5,
                                 step=0.01,
                                 value=1.0)
                     scale_z = gr.Slider(label='sz',
                                 info='Scale z',
-                                minimum=0.0,
+                                minimum=0.5,
                                 maximum=1.5,
                                 step=0.01,
                                 value=1.0)
@@ -236,19 +259,7 @@ with gr.Blocks() as demo:
 
                 with gr.Row():
                     depth_pt_path = gr.Textbox(label = "MIDAS checkpoint path checkpoint path", value = MIDAS_DEPTH_PATH, interactive=True)
-                with gr.Row():
-                    prompt = gr.Textbox(info="Prompt for Editing (Optional)", value="")
                 
-                # Add feature later!
-                with gr.Row():
-                    diffusion_model = gr.Dropdown(label = "Diffusion Model", choices = [
-                        "CompVis/stable-diffusion-v1-4", 
-                        "runwayml/stable-diffusion-v1-5", 
-                        "stabilityai/stable-diffusion-2-base", 
-                        "stabilityai/stable-diffusion-2-1-base"], 
-                        value = "CompVis/stable-diffusion-v1-4")
-
-
                 with gr.Row(visible=False):
                     advanced_options_button = gr.Button("View Advanced Options")
 
@@ -262,247 +273,268 @@ with gr.Blocks() as demo:
                 
 
         # with gr.Row(visible=False) as advanced_options:
+        # with gr.Row():
+        with gr.Row():
+            with gr.Accordion("Advanced Editing Options. Open for More!", open=False):
+                # Not happy with this
+                # gr.Markdown("""<p style="text-align: center; font-size: 20px">Advanced Options</p>""")
+                gr.Markdown("""
+                ### Advanced Options
+                """)
+                with gr.Row():
+                    guidance_scale = gr.Slider(label='g_scale',
+                                info='Guidance Scale',
+                                minimum=0.0,
+                                maximum=10.0,
+                                step=0.1,
+                                value=3.0)
 
-        with gr.Accordion("Advanced Editing Options. Open for More!", open=False):
-            # Not happy with this
-            # gr.Markdown("""<p style="text-align: center; font-size: 20px">Advanced Options</p>""")
-            gr.Markdown("""
-            ### Advanced Options
-            """)
-            with gr.Column():
-                guidance_scale = gr.Slider(label='g_scale',
-                            info='Guidance Scale',
-                            minimum=0.0,
-                            maximum=10.0,
-                            step=0.1,
-                            value=3.0)
-
-                cross_replace_steps = gr.Slider(label='Cross replace',
-                            info='Cross replace',
-                            minimum=0,
-                            maximum=1,
-                            step=0.01,
-                            value=0.97)
-                self_replace_steps = gr.Slider(label='Self replace',
-                            info='Self replace',
-                            minimum=0,
-                            maximum=1,
-                            step=0.01,
-                            value=0.97)
-                
-                
-
-
-
-                
-
-
-                # sigma_color = gr.Slider(label='sigma_color bilateral smoothing',
-                #             info='sigma_color bilateral smoothing',
-                #             minimum=0,
-                #             maximum=100,
-                #             step=0.01,
-                #             value=0.1)
-
-                # sigma_space = gr.Slider(label='sigma_space bilateral smoothing',
-                #             info='sigma_space bilateral smoothing',
-                #             minimum=0,
-                #             maximum=100,
-                #             step=0.01,
-                #             value=16)
-
-                # d_bf_radius = gr.Slider(label='d radius bilateral',
-                #             info='d radius bilateral',
-                #             minimum=0,
-                #             maximum=100,
-                #             step=1,
-                #             value=5)
+                    cross_replace_steps = gr.Slider(label='Cross replace',
+                                info='Cross replace',
+                                minimum=0,
+                                maximum=1,
+                                step=0.01,
+                                value=0.97)
+                    self_replace_steps = gr.Slider(label='Self replace',
+                                info='Self replace',
+                                minimum=0,
+                                maximum=1,
+                                step=0.01,
+                                value=0.97)
+                    
+                    
 
 
 
+                    
 
-            with gr.Column():
-                skip_steps = gr.Slider(label='skip_steps',
-                            info='Skip Steps',
-                            minimum=0,
-                            maximum=10,
-                            step=1,
-                            value=2)
 
-                latent_replace_steps = gr.Slider(label='Latent replace',
-                            info='Latent replace',
-                            minimum=0,
-                            maximum=1,
-                            step=0.01,
-                            value=0.1)
+                    # sigma_color = gr.Slider(label='sigma_color bilateral smoothing',
+                    #             info='sigma_color bilateral smoothing',
+                    #             minimum=0,
+                    #             maximum=100,
+                    #             step=0.01,
+                    #             value=0.1)
 
-                optimize_steps = gr.Slider(label='Optimize steps',
-                            info='optimize steps',
-                            minimum=0,
-                            maximum=1,
-                            step=0.01,
-                            value=0.65)
+                    # sigma_space = gr.Slider(label='sigma_space bilateral smoothing',
+                    #             info='sigma_space bilateral smoothing',
+                    #             minimum=0,
+                    #             maximum=100,
+                    #             step=0.01,
+                    #             value=16)
 
-                fast_optim_steps = gr.Slider(label='Fast Optim Steps',
-                            info='Fast Optim Steps',
-                            minimum=0,
-                            maximum=1,
-                            step=0.01,
-                            value=0.0)
-
-                cam_focal_length = gr.Slider(label='cam_focal_length',
-                            info='cam_focal_length',
-                            minimum=0,
-                            maximum=3000,
-                            step=0.1,
-                            value=550)
-                
+                    # d_bf_radius = gr.Slider(label='d radius bilateral',
+                    #             info='d radius bilateral',
+                    #             minimum=0,
+                    #             maximum=100,
+                    #             step=1,
+                    #             value=5)
 
 
 
 
-            
-
-            with gr.Column():
-                num_ddim_steps = gr.Slider(label='DDIM steps',
-                                info='ddim steps',
-                                minimum=25,
-                                maximum=50,
+                with gr.Row():
+                    skip_steps = gr.Slider(label='skip_steps',
+                                info='Skip Steps',
+                                minimum=0,
+                                maximum=10,
                                 step=1,
-                                value=50)    
+                                value=2)
 
-                num_first_optim_steps = gr.Slider(label='Num first optim steps',
-                                info='Num first optim steps',
+                    latent_replace_steps = gr.Slider(label='Latent replace',
+                                info='Latent replace',
+                                minimum=0,
+                                maximum=1,
+                                step=0.01,
+                                value=0.1)
+
+                    optimize_steps = gr.Slider(label='Optimize steps',
+                                info='optimize steps',
+                                minimum=0,
+                                maximum=1,
+                                step=0.01,
+                                value=0.65)
+
+                    fast_optim_steps = gr.Slider(label='Fast Optim Steps',
+                                info='Fast Optim Steps',
+                                minimum=0,
+                                maximum=1,
+                                step=0.01,
+                                value=0.0)
+
+                    cam_focal_length = gr.Slider(label='cam_focal_length',
+                                info='cam_focal_length',
+                                minimum=0,
+                                maximum=3000,
+                                step=0.1,
+                                value=550)
+                    
+
+
+
+
+                
+
+                with gr.Row():
+                    num_ddim_steps = gr.Slider(label='DDIM steps',
+                                    info='ddim steps',
+                                    minimum=25,
+                                    maximum=50,
+                                    step=1,
+                                    value=50)    
+
+                    num_first_optim_steps = gr.Slider(label='Num first optim steps',
+                                    info='Num first optim steps',
+                                    minimum=1,
+                                    maximum=50,
+                                    step=1,
+                                    value=1)  
+
+                    optim_lr = gr.Slider(label='learning rate',
+                                info='learning rate',
+                                minimum=0.001,
+                                maximum=10.0,
+                                step=0.001,
+                                value=0.03)  
+
+                    splatting_radius = gr.Slider(label='splatting radius',
+                                info='splatting radius',
+                                minimum=0.0,
+                                maximum=5.0,
+                                step=0.01,
+                                value=1.3)
+                    
+                    splatting_tau = gr.Slider(label='splatting tau',
+                                info='splatting tau',
+                                minimum=1e-3,
+                                maximum=2.0,
+                                step=1e-3,
+                                value=1.0)
+
+                    splatting_points_per_pixel = gr.Slider(label='splatting points per pixel',
+                                info='splatting points per pixel',
                                 minimum=1,
-                                maximum=50,
+                                maximum=30,
                                 step=1,
-                                value=1)  
+                                value=15)
 
-                optim_lr = gr.Slider(label='learning rate',
-                            info='learning rate',
-                            minimum=0.001,
-                            maximum=10.0,
-                            step=0.001,
-                            value=0.03)  
-
-                splatting_radius = gr.Slider(label='splatting radius',
-                            info='splatting radius',
-                            minimum=0.0,
-                            maximum=5.0,
-                            step=0.01,
-                            value=1.3)
-                
-                splatting_tau = gr.Slider(label='splatting tau',
-                            info='splatting tau',
-                            minimum=1e-3,
-                            maximum=2.0,
-                            step=1e-3,
-                            value=1.0)
-
-                splatting_points_per_pixel = gr.Slider(label='splatting points per pixel',
-                            info='splatting points per pixel',
-                            minimum=1,
-                            maximum=30,
-                            step=1,
-                            value=15)
-
-                # depth_correct_button = gr.Button("Median Filter on Depth")
+                    # depth_correct_button = gr.Button("Median Filter on Depth")
 
         # with gr.Row(visible=True) as movement_options:
+        with gr.Row():
+            with gr.Accordion("Movement Loss Control", open=False):
+            
 
-        with gr.Accordion("Movement Loss Control", open=True):
-        
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Movement loss</p>""")
+                
+                with gr.Row():
+                    movement_sim_loss_w_self = gr.Slider(label='Background loss (self)',
+                                info='background loss (self)',
+                                minimum=0.0,
+                                maximum=1000,
+                                step=0.001,
+                                value=55.0)
 
-            gr.Markdown("""<p style="text-align: center; font-size: 20px">Movement loss</p>""")
+                    movement_sim_loss_w_cross = gr.Slider(label='Background loss (cross)',
+                                info='background loss (cross)',
+                                minimum=0.0,
+                                maximum=1000.0,
+                                step=0.001,
+                                value=45.0)
+
+                    movement_removal_loss_w_self = gr.Slider(label='loss removal_scale (self)',
+                                info='loss removal_scale (self)',
+                                minimum=0.0,
+                                maximum=1000.0,
+                                step=0.01,
+                                value=2.6)
+
+                    movement_removal_loss_w_cross = gr.Slider(label='loss removal_scale (cross)',
+                                info='loss removal_scale (cross)',
+                                minimum=0.0,
+                                maximum=1000.0,
+                                step=0.01,
+                                value=2.6)
+                                
+                    
+
+                    
+                    
+                with gr.Row():
+                    movement_loss_w_self = gr.Slider(label='foreground preservation loss (self)',
+                                info='foreground preservation loss (self)',
+                                minimum=0.0,
+                                maximum=1000.0,
+                                step=0.01,
+                                value=30.5)
+                    
+                    movement_loss_w_cross = gr.Slider(label='foreground preservation loss (cross)',
+                                info='foreground preservation loss (cross)',
+                                minimum=0.0,
+                                maximum=1000.0,
+                                step=0.01,
+                                value=30.34)
+
+                    amodal_loss_w_self = gr.Slider(label='amodal loss (self)',
+                                info='amodal loss (self)',
+                                minimum=0.0,
+                                maximum=1000.0,
+                                step=0.01,
+                                value=80.5)
+
+                    amodal_loss_w_cross = gr.Slider(label='amodal loss (cross)',
+                                info='amodal loss (cross)',
+                                minimum=0.0,
+                                maximum=1000.0,
+                                step=0.01,
+                                value=3.5)
+                            
+
+                with gr.Row():
+                    movement_smoothness_loss_w_self = gr.Slider(label='loss movement_smoothness (self)',
+                                info='loss movement_smoothness (self)',
+                                minimum=0.0,
+                                maximum=1000.0,
+                                step=0.01,
+                                value=30)
+                    
+                    movement_smoothness_loss_w_cross = gr.Slider(label='loss movement_smoothness (cross)',
+                                info='loss movement_smoothness (cross)',
+                                minimum=0.0,
+                                maximum=1000.0,
+                                step=0.01,
+                                value=15)
+
+                    diffusion_correction = gr.Slider(label='Diffusion Correction',
+                                info='Diffusion Correction vs Edit Adherance. Setting high diffusion correction (~0.6-1.0) reduces edit adherance and does not perform the edit',
+                                minimum=0.0,
+                                maximum=0.4,
+                                step=0.01,
+                                value=0.1)
+
+                    
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Edited Image</p>""")
+                edited_image = gr.Image(type="numpy", label="Edited Image",
+                    show_label=True, height=LENGTH, width=LENGTH, interactive=False)  
             
             with gr.Column():
-                movement_sim_loss_w_self = gr.Slider(label='Background loss (self)',
-                            info='background loss (self)',
-                            minimum=0.0,
-                            maximum=1000,
-                            step=0.001,
-                            value=55.0)
-
-                movement_sim_loss_w_cross = gr.Slider(label='Background loss (cross)',
-                            info='background loss (cross)',
-                            minimum=0.0,
-                            maximum=1000.0,
-                            step=0.001,
-                            value=45.0)
-
-                movement_removal_loss_w_self = gr.Slider(label='loss removal_scale (self)',
-                            info='loss removal_scale (self)',
-                            minimum=0.0,
-                            maximum=1000.0,
-                            step=0.01,
-                            value=2.6)
-
-                movement_removal_loss_w_cross = gr.Slider(label='loss removal_scale (cross)',
-                            info='loss removal_scale (cross)',
-                            minimum=0.0,
-                            maximum=1000.0,
-                            step=0.01,
-                            value=2.6)
-                            
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Editing Options</p>""")
                 
-
-                
-                
-            with gr.Column():
-                movement_loss_w_self = gr.Slider(label='foreground preservation loss (self)',
-                            info='foreground preservation loss (self)',
-                            minimum=0.0,
-                            maximum=1000.0,
-                            step=0.01,
-                            value=30.5)
-                
-                movement_loss_w_cross = gr.Slider(label='foreground preservation loss (cross)',
-                            info='foreground preservation loss (cross)',
-                            minimum=0.0,
-                            maximum=1000.0,
-                            step=0.01,
-                            value=30.34)
-
-                amodal_loss_w_cross = gr.Slider(label='amodal loss (cross)',
-                            info='amodal loss (cross)',
-                            minimum=0.0,
-                            maximum=1000.0,
-                            step=0.01,
-                            value=3.5)
-                           
-                amodal_loss_w_self = gr.Slider(label='amodal loss (self)',
-                            info='amodal loss (self)',
-                            minimum=0.0,
-                            maximum=1000.0,
-                            step=0.01,
-                            value=80.5)
-
-            with gr.Column():
-                movement_smoothness_loss_w_self = gr.Slider(label='loss movement_smoothness (self)',
-                            info='loss movement_smoothness (self)',
-                            minimum=0.0,
-                            maximum=1000.0,
-                            step=0.01,
-                            value=30)
-                
-                movement_smoothness_loss_w_cross = gr.Slider(label='loss movement_smoothness (cross)',
-                            info='loss movement_smoothness (cross)',
-                            minimum=0.0,
-                            maximum=1000.0,
-                            step=0.01,
-                            value=15)
-
-                diffusion_correction = gr.Slider(label='Diffusion Correction',
-                            info='Diffusion Correction vs Edit Adherance. Setting high diffusion correction (~0.6-1.0) reduces edit adherance and does not perform the edit',
-                            minimum=0.0,
-                            maximum=0.4,
-                            step=0.01,
-                            value=0.1)
-
-                edit_button = gr.Button("Move Object")
-                
-
+                with gr.Row():
+                    prompt = gr.Textbox(info="Prompt for Editing (Optional)", value="")
+                                
+                # Add feature later!
+                with gr.Row():
+                    diffusion_model = gr.Dropdown(label = "Diffusion Model", choices = [
+                        "CompVis/stable-diffusion-v1-4", 
+                        "runwayml/stable-diffusion-v1-5", 
+                        "stabilityai/stable-diffusion-2-base", 
+                        "stabilityai/stable-diffusion-2-1-base"], 
+                        value = "CompVis/stable-diffusion-v1-4")
         
+                edit_button = gr.Button("Move Object")
 
 
         with gr.Row(visible=False) as stitching_options:
@@ -587,11 +619,7 @@ with gr.Blocks() as demo:
                 stitch_button = gr.Button("Stitch Image")
 
 
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("""<p style="text-align: center; font-size: 20px">Edited Image</p>""")
-                edited_image = gr.Image(type="numpy", label="Edited Image",
-                    show_label=True, height=LENGTH, width=LENGTH, interactive=False)    
+  
 
 
         with gr.Row():
@@ -619,22 +647,36 @@ with gr.Blocks() as demo:
         # original_image = gr.State(value=None) # store original input image
         with gr.Row():
             with gr.Column():
-                gr.Markdown("""<p style="text-align: center; font-size: 20px">Foreground Image <br> Click Points to Select Object</p>""")
-                input_image_inpainting = gr.Image(type="numpy", label="Click Points \n",
-                    show_label=True, height=LENGTH, width=LENGTH) # for points clicking
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Foreground <br> Image</p>""")
+                input_image_inpainting = gr.Image(type="numpy", label="Input Image \n",
+                    show_label=True, height=LENGTH, width=LENGTH, interactive=True) 
 
-                with gr.Row():
-                    H_txt_inpainting = gr.Number(label="Height", value = LENGTH, interactive=False)
-                    W_txt_inpainting = gr.Number(label="Width", value=LENGTH, interactive=False)
+                
+
                 with gr.Row():
                     sam_path_inpainting = gr.Textbox(label = "SAM checkpoint path", value = SAM_PATH, interactive=True)
                     # depth_pt_path = gr.State(MIDAS_DEPTH_PATH)
+
+
+            with gr.Column():
+
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Foreground Image <br> Click Points to Select Object</p>""")
+                click_points_image_inpainting = gr.Image(type="numpy", label="Mask Image",
+                    show_label=True, height=LENGTH, width=LENGTH, interactive=False)
+                input_image_inpainting.change(fn = copy_image, inputs=[input_image_inpainting], outputs=[click_points_image_inpainting])
+                
+                with gr.Row():
+                    point_label_inpainting = gr.Radio(choices=["Positive",  "Negative"], value="Positive", label="Point prompt", interactive=True)
+                    undo_button_inpainting = gr.Button("Undo point")
 
             with gr.Column():
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Image <br> Mask</p>""")
                 mask_image_inpainting = gr.Image(type="numpy", label="Mask Image",
                     show_label=True, height=LENGTH, width=LENGTH, interactive=False)
 
+                with gr.Row():
+                    H_txt_inpainting = gr.Number(label="Height", value = LENGTH, interactive=False)
+                    W_txt_inpainting = gr.Number(label="Width", value=LENGTH, interactive=False)
                 
 
 
@@ -672,22 +714,7 @@ with gr.Blocks() as demo:
 
 
 
-            with gr.Column():
-                
-                with gr.Row():
-                    prompt_inpainting = gr.Textbox(info="Prompt for Editing (Optional)", value="")
-                
-                
 
-                
-                # Add feature later!
-                with gr.Row():
-                    diffusion_model_inpainting = gr.Dropdown(label = "Diffusion Model", choices = [
-                        "CompVis/stable-diffusion-v1-4", 
-                        "runwayml/stable-diffusion-v1-5", 
-                        "stabilityai/stable-diffusion-2-base", 
-                        "stabilityai/stable-diffusion-2-1-base"], 
-                        value = "CompVis/stable-diffusion-v1-4")
 
 
                 # with gr.Row():
@@ -701,7 +728,6 @@ with gr.Blocks() as demo:
 
                 
 
-        # with gr.Row(visible=False) as advanced_options_inpainting:
         with gr.Accordion("Advanced Inpainting Options. Open for More!", open=False):
         
             # Not happy with this
@@ -709,7 +735,7 @@ with gr.Blocks() as demo:
             gr.Markdown("""
             ### Advanced Options
             """)
-            with gr.Column():
+            with gr.Row():
                 guidance_scale_inpainting = gr.Slider(label='g_scale',
                             info='Guidance Scale',
                             minimum=0.0,
@@ -771,7 +797,7 @@ with gr.Blocks() as demo:
 
 
 
-            with gr.Column():
+            with gr.Row():
                 skip_steps_inpainting = gr.Slider(label='skip_steps',
                             info='Skip Steps',
                             minimum=0,
@@ -813,7 +839,7 @@ with gr.Blocks() as demo:
 
             
 
-            with gr.Column():
+            with gr.Row():
                 num_ddim_steps_inpainting = gr.Slider(label='DDIM steps',
                                 info='ddim steps',
                                 minimum=25,
@@ -861,12 +887,12 @@ with gr.Blocks() as demo:
 
         
         # with gr.Row(visible=True) as inpainting_options:
-        with gr.Accordion("Inpainting Loss Control", open=True):
+        with gr.Accordion("Inpainting Loss Control", open=False):
         
 
             gr.Markdown("""<p style="text-align: center; font-size: 20px">Inpainting loss</p>""")
             
-            with gr.Column():
+            with gr.Row():
                 inpainting_sim_loss_w_self = gr.Slider(label='Background preservation loss (self)',
                             info='background preservation loss (self)',
                             minimum=0.0,
@@ -886,7 +912,7 @@ with gr.Blocks() as demo:
 
                 
                 
-            with gr.Column():
+            with gr.Row():
                 inpainting_removal_loss_w_self = gr.Slider(label='Removal Loss (self)',
                             info='Removal Loss (self)',
                             minimum=0.0,
@@ -904,7 +930,7 @@ with gr.Blocks() as demo:
                            
 
 
-            with gr.Column():
+            with gr.Row():
                 inpainting_smoothness_loss_w_self = gr.Slider(label='loss inpainting_smoothness (self)',
                             info='loss inpainting_smoothness (self)',
                             minimum=0.0,
@@ -919,7 +945,6 @@ with gr.Blocks() as demo:
                             step=0.01,
                             value=15)
 
-                inpaint_mask_button = gr.Button("Inpaint Mask")
             
             # with gr.Row(visible=False):
             #     inpaint_panel_hide = gr.Button("Hide Inpainting Panel")
@@ -931,6 +956,28 @@ with gr.Blocks() as demo:
                 gr.Markdown("""<p style="text-align: center; font-size: 20px">Edited Image</p>""")
                 edited_image_inpainting = gr.Image(type="numpy", label="Edited Image",
                     show_label=True, height=LENGTH, width=LENGTH, interactive=False)    
+
+            with gr.Column():
+                gr.Markdown("""<p style="text-align: center; font-size: 20px">Editing Options</p>""")
+                
+                with gr.Row():
+                    prompt_inpainting = gr.Textbox(info="Prompt for Editing (Optional)", value="")
+                                
+                # Add feature later!
+                with gr.Row():
+                    diffusion_model_inpainting = gr.Dropdown(label = "Diffusion Model", choices = [
+                        "CompVis/stable-diffusion-v1-4", 
+                        "runwayml/stable-diffusion-v1-5", 
+                        "stabilityai/stable-diffusion-2-base", 
+                        "stabilityai/stable-diffusion-2-1-base"], 
+                        value = "CompVis/stable-diffusion-v1-4")
+
+                with gr.Row():
+                    inpaint_mask_button = gr.Button("Inpaint Mask")
+
+
+                
+
 
 
         with gr.Row():
@@ -952,8 +999,9 @@ with gr.Blocks() as demo:
 
     
     input_image.upload(fn = resize_image_and_get_constant_depth, inputs=[input_image], outputs=[input_image, depth_image, depth_image_vis, H_txt, W_txt])
+
     edited_image.change(fn = resize_image_to_size, inputs=[edited_image, H_txt, W_txt], outputs=[download_image])
-    edited_image.change(fn = resize_image_to_size, inputs = [input_image, H_txt, W_txt], outputs = download_image_input)
+    edited_image.change(fn = resize_image_to_size, inputs = [input_image, H_txt, W_txt], outputs = [download_image_input])
 
 
 
@@ -981,7 +1029,9 @@ with gr.Blocks() as demo:
     get_mask,
     [input_image, mask_image, selected_points, sam_path],
     [input_image, mask_image],
-)   
+    )
+
+
 
     depth_button.click(
         get_depth, 
@@ -1023,6 +1073,17 @@ with gr.Blocks() as demo:
     )
 
 
+    click_points_image.select(
+        get_points,
+        [input_image, selected_points, point_label, sam_path],
+        [click_points_image, mask_image],
+    )
+
+    undo_button.click(
+        undo_point,
+        [input_image, selected_points, sam_path],
+        [click_points_image, mask_image, selected_points]
+    )
 
         
     # advanced_options_button.click(
@@ -1079,6 +1140,19 @@ with gr.Blocks() as demo:
 
 
     ################################ Inpainting
+
+
+    click_points_image_inpainting.select(
+        get_points,
+        [input_image_inpainting, selected_points_inpainting, point_label_inpainting, sam_path_inpainting],
+        [click_points_image_inpainting, mask_image_inpainting],
+    )
+
+    undo_button.click(
+        undo_point,
+        [input_image_inpainting, selected_points_inpainting, sam_path_inpainting],
+        [click_points_image_inpainting, mask_image, selected_points]
+    )
 
     input_image_inpainting.upload(fn = resize_image_and_get_constant_depth, inputs=[input_image_inpainting], outputs=[input_image_inpainting, depth_image, depth_image_vis, H_txt_inpainting, W_txt_inpainting])
     
