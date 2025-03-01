@@ -468,7 +468,7 @@ with gr.Blocks() as demo:
                                 minimum=-30.0,
                                 maximum=0.0,
                                 step=0.01,
-                                value=-1.5)
+                                value=-2.5)
                                 
                     
 
@@ -966,7 +966,7 @@ with gr.Blocks() as demo:
                             minimum=-30.0,
                             maximum=0,
                             step=0.01,
-                            value=-1.5)       
+                            value=-2.5)       
 
 
             with gr.Row():
